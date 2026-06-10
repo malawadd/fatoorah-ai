@@ -1,0 +1,21 @@
+ #  Agentic Minds — Python Dependencies
+ 
+# Core Django
+django
+djangorestframework
+
+# Environment variables
+python-dotenv
+
+# Google Gemini AI
+google-genai
+
+# Image processing
+Pillow
+
+# Database (PostgreSQL for production)
+dj-database-url 
+psycopg2-binary 
+
+# Static files in production
+whitenoise 

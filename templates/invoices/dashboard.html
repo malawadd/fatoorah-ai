@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agentic Minds — Invoice Intelligence</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50:  '#f0f4ff',
+              100: '#e0eaff',
+              500: '#4f6ef7',
+              600: '#3b57f5',
+              700: '#2a42e8',
+              900: '#1a2a9c',
+            },
+            surface: {
+              50:  '#f8f9fc',
+              100: '#f1f3f9',
+              200: '#e4e8f2',
+              800: '#1c2033',
+              900: '#13162b',
+              950: '#0d0f1e',
+            }
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.4s ease forwards',
+            'slide-up': 'slideUp 0.35s ease forwards',
+          },
+          keyframes: {
+            fadeIn: { from: { opacity: '0' }, to: { opacity: '1' } },
+            slideUp: { from: { opacity: '0', transform: 'translateY(12px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #0d0f1e; color: #e2e6f3; font-family: 'Inter', sans-serif; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #13162b; }
+    ::-webkit-scrollbar-thumb { background: #2a3060; border-radius: 3px; }
+
+    /* Glassy card */
+    .glass {
+      background: rgba(28, 32, 51, 0.7);
+      border: 1px solid rgba(255,255,255,0.07);
+      backdrop-filter: blur(12px);
+    }
+
+    /* Metric card hover */
+    .metric-card {
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(79, 110, 247, 0.4);
+    }
+
+    /* Table row expand */
+    .line-items-row { display: none; }
+    .line-items-row.open { display: table-row; animation: fadeIn 0.25s ease; }
+
+    /* Badge */
+    .badge-match    { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-mismatch { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+    .badge-failed   { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+    .badge-pending  { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
+
+    /* Upload zone */
+    .upload-zone {
+      border: 2px dashed rgba(79,110,247,0.4);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: #4f6ef7;
+      background: rgba(79,110,247,0.07);
+    }
+
+    /* Glow accent on sidebar logo */
+    .logo-glow {
+      text-shadow: 0 0 24px rgba(79,110,247,0.6);
+    }
+
+    /* Progress bar animation */
+    @keyframes pulse-bar {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .processing-bar { animation: pulse-bar 1.2s ease infinite; }
+
+    /* Table striping */
+    tbody tr:nth-child(4n+1) td,
+    tbody tr:nth-child(4n+2) td {
+      background: rgba(255,255,255,0.015);
+    }
+
+    /* Row chevron */
+    .chevron { transition: transform 0.2s ease; }
+    .chevron.rotated { transform: rotate(180deg); }
+  </style>
+</head>
+
+<body class="min-h-screen">
+
+  <!-- ════════════════════════════════════════════
+       LAYOUT WRAPPER
+  ════════════════════════════════════════════ -->
+  <div class="flex min-h-screen">
+
+    <!-- ── Sidebar ─────────────────────────────── -->
+    <aside class="w-64 flex-shrink-0 bg-surface-950 border-r border-white/5 flex flex-col py-8 px-5 fixed h-full z-20">
+      <!-- Logo -->
+      <div class="mb-10">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30">
+            <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-white font-semibold text-sm leading-tight logo-glow">Agentic Minds</p>
+            <p class="text-slate-500 text-xs">Invoice Intelligence</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nav -->
+      <nav class="flex-1 space-y-1">
+        <a href="/dashboard/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-500 text-sm font-medium">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Dashboard
+        </a>
+        <a href="#upload-section" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          Upload Invoice
+        </a>
+        <a href="#invoices-section" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 text-sm transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          All Invoices
+        </a>
+      </nav>
+
+      <!-- Status legend -->
+      <div class="mt-auto pt-6 border-t border-white/5">
+        <p class="text-xs text-slate-500 uppercase tracking-widest mb-3 px-1">Validation</p>
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></span>
+            <span class="text-slate-400">Match — totals verified</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-red-400 flex-shrink-0"></span>
+            <span class="text-slate-400">Mismatch — delta detected</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></span>
+            <span class="text-slate-400">Failed — extraction error</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-slate-500 flex-shrink-0"></span>
+            <span class="text-slate-400">Pending — awaiting AI</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Main content ─────────────────────────── -->
+    <main class="ml-64 flex-1 p-8 space-y-8 animate-fade-in">
+
+      <!-- Header -->
+      <div class="flex items-start justify-between">
+        <div>
+          <h1 class="text-2xl font-semibold text-white">Invoice Processing Hub</h1>
+          <p class="text-slate-400 text-sm mt-1">AI-extracted, validated, and audit-ready.</p>
+        </div>
+        <div class="text-right">
+          <p class="text-xs text-slate-500 font-mono">UiPath AgentHack 2026</p>
+          <p class="text-xs text-brand-500 font-mono">Track 1 — Maestro</p>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════
+           METRIC CARDS
+      ═══════════════════════════════════ -->
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
+
+        <!-- Total Invoices -->
+        <div class="glass rounded-2xl p-5 metric-card">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest font-medium">Total Invoices</p>
+            <div class="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center">
+              <svg class="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-white">{{ total_invoices }}</p>
+          <div class="mt-3 flex gap-2 text-xs flex-wrap">
+            <span class="badge-match px-2 py-0.5 rounded-full">{{ match_count }} matched</span>
+            <span class="badge-mismatch px-2 py-0.5 rounded-full">{{ mismatch_count }} issues</span>
+          </div>
+        </div>
+
+        <!-- Total Value -->
+        <div class="glass rounded-2xl p-5 metric-card">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest font-medium">Total Value</p>
+            <div class="w-8 h-8 rounded-lg bg-green-500/15 flex items-center justify-center">
+              <svg class="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-white font-mono">
+            {{ total_value|floatformat:2 }}
+          </p>
+          <p class="text-xs text-slate-500 mt-1">SAR (incl. VAT)</p>
+        </div>
+
+        <!-- Total Tax -->
+        <div class="glass rounded-2xl p-5 metric-card">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest font-medium">Total VAT</p>
+            <div class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+              <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" /></svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-white font-mono">
+            {{ total_tax|floatformat:2 }}
+          </p>
+          <p class="text-xs text-slate-500 mt-1">SAR (VAT only)</p>
+        </div>
+
+        <!-- Validation Rate -->
+        <div class="glass rounded-2xl p-5 metric-card">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest font-medium">Match Rate</p>
+            <div class="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center">
+              <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+          </div>
+          {% if total_invoices > 0 %}
+            {% widthratio match_count total_invoices 100 as match_pct %}
+            <p class="text-3xl font-bold text-white">{{ match_pct }}<span class="text-lg text-slate-400">%</span></p>
+            <div class="mt-3 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div class="h-full bg-green-400 rounded-full transition-all duration-700" style="width: {{ match_pct }}%"></div>
+            </div>
+          {% else %}
+            <p class="text-3xl font-bold text-slate-500">—</p>
+          {% endif %}
+        </div>
+
+      </div>
+
+      <!-- ═══════════════════════════════════
+           UPLOAD SECTION
+      ═══════════════════════════════════ -->
+      <section id="upload-section" class="glass rounded-2xl p-6 animate-slide-up">
+        <div class="flex items-center gap-3 mb-5">
+          <div class="w-7 h-7 rounded-lg bg-brand-500/15 flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          </div>
+          <div>
+            <h2 class="text-white font-semibold text-base">Upload Invoice</h2>
+            <p class="text-slate-500 text-xs">JPEG, PNG, WebP, or PDF — Gemini AI processes instantly</p>
+          </div>
+        </div>
+
+        <form id="uploadForm" enctype="multipart/form-data">
+          {% csrf_token %}
+          <!-- Drop zone -->
+          <div id="dropZone"
+               class="upload-zone rounded-xl p-10 text-center cursor-pointer mb-4"
+               onclick="document.getElementById('fileInput').click()"
+               ondragover="handleDragOver(event)"
+               ondragleave="handleDragLeave(event)"
+               ondrop="handleDrop(event)">
+            <div id="dropContent">
+              <svg class="w-10 h-10 text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <p class="text-slate-300 text-sm font-medium">Drop your invoice here</p>
+              <p class="text-slate-500 text-xs mt-1">or click to browse files</p>
+            </div>
+            <div id="fileSelected" class="hidden">
+              <svg class="w-8 h-8 text-brand-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <p id="fileSelectedName" class="text-brand-500 text-sm font-medium"></p>
+              <p class="text-slate-500 text-xs mt-1">Click to change file</p>
+            </div>
+          </div>
+          <input type="file" id="fileInput" name="file" accept="image/*,.pdf" class="hidden" onchange="handleFileSelect(this)" />
+
+          <!-- Submit button -->
+          <button type="submit" id="submitBtn"
+                  class="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+            <svg id="submitIcon" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+            <span id="submitText">Process with Gemini AI</span>
+          </button>
+        </form>
+
+        <!-- Processing bar -->
+        <div id="processingBar" class="hidden mt-4">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-2 h-2 rounded-full bg-brand-500 processing-bar"></div>
+            <p class="text-xs text-slate-400" id="processingStep">Uploading invoice...</p>
+          </div>
+          <div class="h-1 bg-white/10 rounded-full overflow-hidden">
+            <div id="progressFill" class="h-full bg-brand-500 rounded-full transition-all duration-500" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Result panel -->
+        <div id="resultPanel" class="hidden mt-4 rounded-xl p-4 border text-sm"></div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           INVOICES TABLE
+      ═══════════════════════════════════ -->
+      <section id="invoices-section" class="animate-slide-up">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-white font-semibold text-base">All Invoices</h2>
+          <div class="flex items-center gap-3">
+            <!-- Search -->
+            <div class="relative">
+              <svg class="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/></svg>
+              <input type="text" id="searchInput" placeholder="Search invoices..."
+                     class="pl-9 pr-4 py-2 bg-surface-800 border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 w-52 transition-colors" />
+            </div>
+            <!-- Filter -->
+            <select id="statusFilter"
+                    class="px-3 py-2 bg-surface-800 border border-white/10 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-brand-500 transition-colors">
+              <option value="">All statuses</option>
+              <option value="match">Match</option>
+              <option value="mismatch">Mismatch</option>
+              <option value="failed">Failed</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+        </div>
+
+        {% if invoices %}
+        <div class="glass rounded-2xl overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm" id="invoiceTable">
+              <thead>
+                <tr class="border-b border-white/5 text-left">
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider w-8"></th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider">Seller</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider">Invoice #</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider">Date</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider text-right">Subtotal</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider text-right">VAT</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider text-right">Total</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider text-center">Status</th>
+                  <th class="px-5 py-3.5 text-xs font-medium text-slate-400 uppercase tracking-wider">Uploaded</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/5" id="tableBody">
+                {% for invoice in invoices %}
+                <!-- Main row -->
+                <tr class="invoice-row hover:bg-white/[0.02] transition-colors cursor-pointer"
+                    data-seller="{{ invoice.seller_name|default:'' }}"
+                    data-invoice="{{ invoice.invoice_number|default:'' }}"
+                    data-status="{{ invoice.validation_status }}"
+                    onclick="toggleLineItems('{{ invoice.id }}')">
+                  <td class="px-5 py-4">
+                    <svg class="w-4 h-4 text-slate-500 chevron" id="chevron-{{ invoice.id }}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </td>
+                  <td class="px-5 py-4">
+                    <div>
+                      <p class="text-white font-medium">{{ invoice.seller_name|default:"Unknown Seller" }}</p>
+                      {% if invoice.tax_number %}
+                        <p class="text-xs text-slate-500 font-mono mt-0.5">VAT: {{ invoice.tax_number }}</p>
+                      {% endif %}
+                    </div>
+                  </td>
+                  <td class="px-5 py-4">
+                    <span class="font-mono text-slate-300 text-xs bg-white/5 px-2 py-1 rounded">
+                      {{ invoice.invoice_number|default:"—" }}
+                    </span>
+                  </td>
+                  <td class="px-5 py-4 text-slate-400 text-xs">
+                    {% if invoice.invoice_timestamp %}
+                      {{ invoice.invoice_timestamp|date:"d M Y" }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td class="px-5 py-4 text-right font-mono text-slate-300">
+                    {% if invoice.subtotal %}{{ invoice.subtotal|floatformat:2 }}{% else %}—{% endif %}
+                  </td>
+                  <td class="px-5 py-4 text-right font-mono text-amber-400/80">
+                    {% if invoice.vat_amount %}{{ invoice.vat_amount|floatformat:2 }}{% else %}—{% endif %}
+                  </td>
+                  <td class="px-5 py-4 text-right font-mono font-semibold text-white">
+                    {% if invoice.total_with_vat %}{{ invoice.total_with_vat|floatformat:2 }}{% else %}—{% endif %}
+                  </td>
+                  <td class="px-5 py-4 text-center">
+                    <span class="badge-{{ invoice.validation_status }} px-2.5 py-1 rounded-full text-xs font-medium">
+                      {% if invoice.validation_status == "match" %}✓ Match
+                      {% elif invoice.validation_status == "mismatch" %}✗ Mismatch
+                      {% elif invoice.validation_status == "failed" %}⚠ Failed
+                      {% else %}· Pending{% endif %}
+                    </span>
+                    {% if invoice.validation_status == "mismatch" and invoice.validation_delta %}
+                      <p class="text-xs text-red-400 font-mono mt-1">Δ {{ invoice.validation_delta|floatformat:2 }}</p>
+                    {% endif %}
+                  </td>
+                  <td class="px-5 py-4 text-xs text-slate-500">
+                    {{ invoice.created_at|date:"d M Y, H:i" }}
+                  </td>
+                </tr>
+
+                <!-- Line items expandable row -->
+                <tr class="line-items-row" id="items-{{ invoice.id }}">
+                  <td colspan="9" class="px-5 py-0">
+                    <div class="mx-4 my-3 rounded-xl bg-surface-950/80 border border-white/5 overflow-hidden">
+                      <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+                        <p class="text-xs font-medium text-slate-300 uppercase tracking-wider">
+                          Line Items — {{ invoice.line_items.count }} item{{ invoice.line_items.count|pluralize }}
+                        </p>
+                        <p class="text-xs text-slate-500 font-mono">{{ invoice.original_file_name }}</p>
+                      </div>
+                      {% if invoice.line_items.all %}
+                      <table class="w-full text-xs">
+                        <thead>
+                          <tr class="text-left border-b border-white/5">
+                            <th class="px-4 py-2.5 text-slate-500 font-medium uppercase tracking-wider">#</th>
+                            <th class="px-4 py-2.5 text-slate-500 font-medium uppercase tracking-wider">Item</th>
+                            <th class="px-4 py-2.5 text-slate-500 font-medium uppercase tracking-wider text-right">Qty</th>
+                            <th class="px-4 py-2.5 text-slate-500 font-medium uppercase tracking-wider text-right">Unit Price</th>
+                            <th class="px-4 py-2.5 text-slate-500 font-medium uppercase tracking-wider text-right">Line Total</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5">
+                          {% for item in invoice.line_items.all %}
+                          <tr class="hover:bg-white/[0.02]">
+                            <td class="px-4 py-2.5 text-slate-600">{{ forloop.counter }}</td>
+                            <td class="px-4 py-2.5 text-slate-200">{{ item.item_name }}</td>
+                            <td class="px-4 py-2.5 text-right font-mono text-slate-300">{{ item.quantity|floatformat:"-3" }}</td>
+                            <td class="px-4 py-2.5 text-right font-mono text-slate-300">{{ item.unit_price|floatformat:2 }}</td>
+                            <td class="px-4 py-2.5 text-right font-mono font-semibold text-white">{{ item.line_total|floatformat:2 }}</td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                        <tfoot>
+                          <tr class="border-t border-white/10 bg-white/[0.02]">
+                            <td colspan="4" class="px-4 py-2.5 text-right text-slate-400 font-medium">Computed Total</td>
+                            <td class="px-4 py-2.5 text-right font-mono font-bold text-white">
+                              {{ invoice.line_items_total|floatformat:2 }}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      {% else %}
+                      <div class="px-4 py-6 text-center text-slate-600 text-xs">No line items extracted</div>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {% else %}
+        <!-- Empty state -->
+        <div class="glass rounded-2xl p-16 text-center">
+          <div class="w-14 h-14 rounded-2xl bg-brand-500/10 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-7 h-7 text-brand-500/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          </div>
+          <p class="text-white font-medium mb-1">No invoices yet</p>
+          <p class="text-slate-500 text-sm">Upload your first invoice above to see AI extraction in action.</p>
+        </div>
+        {% endif %}
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ════════════════════════════════════════════
+       JAVASCRIPT
+  ════════════════════════════════════════════ -->
+  <script>
+    // ── Upload form ───────────────────────────────────────────────────────────
+
+    function handleFileSelect(input) {
+      if (input.files[0]) showFileSelected(input.files[0].name);
+    }
+
+    function showFileSelected(name) {
+      document.getElementById('dropContent').classList.add('hidden');
+      document.getElementById('fileSelected').classList.remove('hidden');
+      document.getElementById('fileSelectedName').textContent = name;
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').classList.add('drag-over');
+    }
+    function handleDragLeave(e) {
+      document.getElementById('dropZone').classList.remove('drag-over');
+    }
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        document.getElementById('fileInput').files = dt.files;
+        showFileSelected(file.name);
+      }
+    }
+
+    // Progress steps for UI feedback
+    const processingSteps = [
+      [10,  "Uploading invoice..."],
+      [30,  "Analyzing with Gemini AI..."],
+      [55,  "Extracting line items..."],
+      [75,  "Decoding QR data..."],
+      [90,  "Validating totals..."],
+      [100, "Saving to database..."],
+    ];
+
+    document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('fileInput');
+      if (!fileInput.files[0]) {
+        showResult('error', 'Please select a file first.');
+        return;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      document.getElementById('submitText').textContent = 'Processing...';
+
+      const bar = document.getElementById('processingBar');
+      const fill = document.getElementById('progressFill');
+      const step = document.getElementById('processingStep');
+      bar.classList.remove('hidden');
+      document.getElementById('resultPanel').classList.add('hidden');
+
+      // Animate progress steps
+      let stepIdx = 0;
+      const interval = setInterval(() => {
+        if (stepIdx < processingSteps.length) {
+          const [pct, msg] = processingSteps[stepIdx++];
+          fill.style.width = pct + '%';
+          step.textContent = msg;
+        }
+      }, 900);
+
+      try {
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const res = await fetch('/api/invoices/upload/', {
+          method: 'POST',
+          headers: { 'X-CSRFToken': csrfToken },
+          body: formData,
+        });
+        const data = await res.json();
+
+        clearInterval(interval);
+        fill.style.width = '100%';
+        step.textContent = 'Done.';
+
+        setTimeout(() => bar.classList.add('hidden'), 800);
+
+        if (res.ok && data.success) {
+          showResult('success', `
+            <div class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <div>
+                <p class="font-semibold text-green-400">Invoice processed successfully</p>
+                <p class="text-slate-400 text-xs mt-1">
+                  <strong class="text-white">${data.seller_name || 'Unknown'}</strong>
+                  — Total: <strong class="text-white font-mono">${data.total_with_vat}</strong>
+                  — Status: <strong class="${data.validation_status === 'match' ? 'text-green-400' : 'text-red-400'}">${data.validation_status}</strong>
+                  — ${data.line_items_count} line item(s)
+                </p>
+              </div>
+            </div>
+          `);
+          // Reload page to show new invoice in table
+          setTimeout(() => window.location.reload(), 1800);
+        } else {
+          showResult('error', `
+            <div class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <div>
+                <p class="font-semibold text-red-400">Processing failed</p>
+                <p class="text-slate-400 text-xs mt-1">${data.error || 'Unknown error'}</p>
+              </div>
+            </div>
+          `);
+        }
+      } catch (err) {
+        clearInterval(interval);
+        bar.classList.add('hidden');
+        showResult('error', 'Network error — check your connection and try again.');
+      }
+
+      btn.disabled = false;
+      document.getElementById('submitText').textContent = 'Process with Gemini AI';
+    });
+
+    function showResult(type, html) {
+      const panel = document.getElementById('resultPanel');
+      panel.className = `mt-4 rounded-xl p-4 border text-sm ${
+        type === 'success'
+          ? 'bg-green-500/10 border-green-500/20'
+          : 'bg-red-500/10 border-red-500/20'
+      }`;
+      panel.innerHTML = html;
+      panel.classList.remove('hidden');
+    }
+
+    // ── Line items expand/collapse ────────────────────────────────────────────
+
+    function toggleLineItems(id) {
+      const row = document.getElementById('items-' + id);
+      const chevron = document.getElementById('chevron-' + id);
+      const isOpen = row.classList.contains('open');
+      row.classList.toggle('open', !isOpen);
+      chevron.classList.toggle('rotated', !isOpen);
+    }
+
+    // ── Search + filter ───────────────────────────────────────────────────────
+
+    function filterTable() {
+      const query  = document.getElementById('searchInput').value.toLowerCase();
+      const status = document.getElementById('statusFilter').value;
+      const rows   = document.querySelectorAll('.invoice-row');
+
+      rows.forEach(row => {
+        const seller  = row.dataset.seller.toLowerCase();
+        const invoice = row.dataset.invoice.toLowerCase();
+        const rowStatus = row.dataset.status;
+
+        const matchesSearch = !query || seller.includes(query) || invoice.includes(query);
+        const matchesStatus = !status || rowStatus === status;
+
+        const show = matchesSearch && matchesStatus;
+        row.style.display = show ? '' : 'none';
+
+        // Also hide the associated line-items row
+        const itemsRow = document.getElementById('items-' + row.querySelector('[id^="chevron-"]').id.replace('chevron-', ''));
+        if (itemsRow) itemsRow.style.display = show ? '' : 'none';
+      });
+    }
+
+    document.getElementById('searchInput').addEventListener('input', filterTable);
+    document.getElementById('statusFilter').addEventListener('change', filterTable);
+  </script>
+</body>
+</html>
