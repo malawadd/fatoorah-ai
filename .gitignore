@@ -1,0 +1,7 @@
+.env
+*.json
+!kaggle.json 
+ai_core/
+__pycache__/
+dataset/
+venv/
