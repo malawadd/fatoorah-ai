@@ -133,23 +133,33 @@ def upload_and_process_invoice(request):
 
     # ── 5. Compute line-item total & validate ──────────────────────────────
     line_items_raw = data.get("line_items", [])
-    computed_total = Decimal("0.00")
+    computed_subtotal = Decimal("0.00")
     for item in line_items_raw:
         qty   = _to_decimal(item.get("quantity"))
         price = _to_decimal(item.get("unit_price"))
         if qty and price:
-            computed_total += (qty * price).quantize(Decimal("0.01"))
+            computed_subtotal += (qty * price).quantize(Decimal("0.01"))
 
-    # Validation logic:
-    #   - If we have a QR total (total_with_vat), compare against computed line total
-    #   - Tolerance: ±0.05 to absorb rounding differences
+    # Validation logic — compare like-for-like:
+    #   computed_subtotal (sum of line items, VAT-exclusive)
+    #   + vat_amount (from QR/Gemini)
+    #   ───────────────────────────────────────────────────
+    #   = computed_total_with_vat  ←→  compared against total_with_vat (QR)
+    #
+    # Comparing computed_subtotal directly against total_with_vat is WRONG —
+    # it always shows a mismatch equal to the VAT amount, since one side
+    # excludes tax and the other includes it.
     if total_with_vat is not None:
-        delta = (computed_total - total_with_vat).copy_abs()
+        computed_total_with_vat = computed_subtotal + (vat_amount or Decimal("0.00"))
+        delta = (computed_total_with_vat - total_with_vat).copy_abs()
         validation_status = "match" if delta <= VALIDATION_TOLERANCE else "mismatch"
-        validation_delta = computed_total - total_with_vat
+        validation_delta = computed_total_with_vat - total_with_vat
     else:
-        validation_status = "match" if computed_total > 0 else "pending"
+        validation_status = "match" if computed_subtotal > 0 else "pending"
         validation_delta = None
+
+    # Keep computed_total name for backward compatibility below
+    computed_total = computed_subtotal
 
     # ── 6. Persist to database ─────────────────────────────────────────────
     invoice = Invoice.objects.create(
