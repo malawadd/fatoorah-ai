@@ -1,0 +1,112 @@
+name: Sync source branch into generated main
+
+on:
+  push:
+    branches:
+      - uipath-automation
+      - asmaa-dev
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: Source branch to sync
+        required: true
+        type: choice
+        options:
+          - uipath-automation
+          - asmaa-dev
+        default: uipath-automation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: generated-main-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve source and target
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            source_branch="${{ inputs.source_branch }}"
+          else
+            source_branch="${GITHUB_REF_NAME}"
+          fi
+
+          case "$source_branch" in
+            uipath-automation)
+              target_folder="uipath-automation"
+              ;;
+            asmaa-dev)
+              target_folder="extraction"
+              ;;
+            *)
+              echo "Unsupported source branch: $source_branch" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "source_branch=$source_branch" >> "$GITHUB_OUTPUT"
+          echo "target_folder=$target_folder" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout generated main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-worktree
+          fetch-depth: 0
+
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.source_branch }}
+          path: source-worktree
+          fetch-depth: 0
+
+      - name: Refresh target folder
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target="main-worktree/${{ steps.vars.outputs.target_folder }}"
+          rm -rf "$target"
+          mkdir -p "$target"
+
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='LOCAL_BRANCH_REWRITE_README.md' \
+            source-worktree/ "$target/"
+
+          find "$target" -name '.env' -type f -delete
+
+      - name: Commit refreshed folder
+        shell: bash
+        working-directory: main-worktree
+        run: |
+          set -euo pipefail
+
+          source_branch="${{ steps.vars.outputs.source_branch }}"
+          target_folder="${{ steps.vars.outputs.target_folder }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git pull --rebase origin main
+          git add -A "$target_folder"
+
+          if git diff --cached --quiet; then
+            echo "No changes to sync for $source_branch."
+            exit 0
+          fi
+
+          git commit -m "Sync $source_branch into $target_folder"
+          git push origin HEAD:main
