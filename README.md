@@ -52,6 +52,8 @@ Stop both tunnels:
 powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 stop
 ```
 
+This closes the public HTTPS tunnels. To stop the local web/API listeners too, stop `npm run dev` with `Ctrl+C` in its terminal.
+
 The script updates ignored local `.env` with the current API tunnel URL. Tunnel URLs are temporary; restart tunnels and rerun preflight before each live Maestro demo.
 
 If Maestro reads `InvoiceIntakeApiBaseUrl` from Orchestrator assets, update that asset after the API tunnel changes:

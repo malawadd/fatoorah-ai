@@ -71,6 +71,8 @@ Stop both tunnels when testing is done:
 powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 stop
 ```
 
+This closes public access. To stop the local web/API listeners too, stop `npm run dev` with `Ctrl+C` in its terminal.
+
 After starting tunnels, run:
 
 ```powershell
