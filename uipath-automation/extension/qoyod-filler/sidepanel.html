@@ -47,7 +47,16 @@
       </section>
 
       <section class="section">
-        <h2>Queue</h2>
+        <div class="section-heading">
+          <h2>Queue</h2>
+          <button id="refreshBatches" class="ghost small" type="button">Refresh</button>
+        </div>
+        <label>
+          Batch scope
+          <select id="batchScope">
+            <option value="">Any ready invoice</option>
+          </select>
+        </label>
         <div class="stack">
           <button id="claim" type="button">Claim next reviewed invoice</button>
           <button id="cancel" class="ghost" type="button" disabled>Release current job</button>

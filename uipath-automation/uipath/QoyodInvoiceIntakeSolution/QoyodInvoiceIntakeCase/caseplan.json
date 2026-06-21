@@ -2,7 +2,7 @@
     "id": "case-R8kP4mZqT2",
     "version": "23.0.0",
     "name": "QoyodInvoiceIntakeCase",
-    "description": "Track 1 Maestro Case for phone-captured invoice intake, external LLM extraction, finance review, Chrome extension Qoyod draft creation, and exception resolution.",
+    "description": "Track 1 Maestro Case for batch phone-captured invoice intake, external LLM extraction, finance review, Chrome extension Qoyod draft creation, and exception resolution.",
     "metadata": {
         "caseIdentifier": "QII",
         "caseIdentifierType": "constant",
@@ -49,6 +49,40 @@
     ],
     "variables": {
         "inputs": [
+            {
+                "id": "batchId",
+                "name": "batchId",
+                "type": "string",
+                "default": "",
+                "elementId": "trigger_1"
+            },
+            {
+                "id": "batchName",
+                "name": "batchName",
+                "type": "string",
+                "default": "",
+                "elementId": "trigger_1"
+            },
+            {
+                "id": "invoiceCount",
+                "name": "invoiceCount",
+                "type": "number",
+                "default": 0,
+                "elementId": "trigger_1"
+            },
+            {
+                "id": "jobIds",
+                "name": "jobIds",
+                "type": "jsonSchema",
+                "default": "",
+                "elementId": "trigger_1",
+                "body": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
             {
                 "id": "jobId",
                 "name": "jobId",
@@ -111,6 +145,36 @@
             }
         ],
         "inputOutputs": [
+            {
+                "id": "batchId",
+                "name": "batchId",
+                "type": "string",
+                "elementId": "trigger_1"
+            },
+            {
+                "id": "batchName",
+                "name": "batchName",
+                "type": "string",
+                "elementId": "trigger_1"
+            },
+            {
+                "id": "invoiceCount",
+                "name": "invoiceCount",
+                "type": "number",
+                "elementId": "trigger_1"
+            },
+            {
+                "id": "jobIds",
+                "name": "jobIds",
+                "type": "jsonSchema",
+                "elementId": "trigger_1",
+                "body": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
             {
                 "id": "jobId",
                 "name": "jobId",
@@ -246,8 +310,8 @@
                     "id": "root",
                     "type": "case-management:root"
                 },
-                "label": "Start Invoice Intake",
-                "description": "Manual or API start after the phone PWA uploads the source invoice and QR metadata."
+                "label": "Start Invoice Batch Intake",
+                "description": "Manual or API start after the phone PWA uploads the batch source invoices and QR metadata."
             }
         },
         {

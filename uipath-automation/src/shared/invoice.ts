@@ -14,7 +14,40 @@ export const jobStatuses = [
   "error"
 ] as const;
 
+export const batchStatuses = [
+  "open",
+  "processing",
+  "needs_review",
+  "ready_for_qoyod",
+  "qoyod_filling",
+  "draft_saved",
+  "mixed",
+  "error",
+  "closed"
+] as const;
+
+export const caseStages = [
+  "Capture Intake",
+  "Extraction And Reconciliation",
+  "Finance Review And Mapping",
+  "Qoyod Drafting",
+  "Exception Resolution",
+  "Closed"
+] as const;
+
+export const caseStatuses = [
+  "not_started",
+  "starting",
+  "active",
+  "fallback",
+  "blocked",
+  "exception",
+  "closed"
+] as const;
+
 export const extractionProviderSchema = z.enum(["openai", "deepseek", "external", "mock", "manual"]);
+export const caseStageSchema = z.enum(caseStages);
+export const caseStatusSchema = z.enum(caseStatuses);
 
 export const extractionMetadataSchema = z.object({
   provider: extractionProviderSchema,
@@ -36,6 +69,21 @@ export const mappingSchema = z.object({
   type: z.enum(["item", "expense"]),
   id: z.string().min(1),
   label: z.string().min(1)
+});
+
+export const mappingRuleSchema = z.object({
+  ruleId: z.string().min(1),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  active: z.boolean().default(true),
+  type: z.enum(["item", "expense"]),
+  qoyodId: z.string().min(1),
+  label: z.string().min(1),
+  supplierName: z.string().optional(),
+  supplierTaxId: z.string().optional(),
+  matchText: z.string().min(1),
+  matchMode: z.enum(["contains", "exact"]).default("contains"),
+  taxRate: z.coerce.number().nonnegative().optional()
 });
 
 export const lineItemSchema = z.object({
@@ -105,6 +153,11 @@ export const jobEventSchema = z.object({
   message: z.string()
 });
 
+export const batchOptionsSchema = z.object({
+  readyPolicy: z.literal("per_invoice").default("per_invoice"),
+  autoApplyMappings: z.boolean().default(true)
+});
+
 export const intakeJobSchema = z.object({
   jobId: z.string().min(1),
   status: z.enum(jobStatuses),
@@ -120,13 +173,60 @@ export const intakeJobSchema = z.object({
   caseExternalId: z.string().optional(),
   caseStage: z.string().optional(),
   extraction: extractionMetadataSchema.optional(),
-  fill: fillMetadataSchema.optional()
+  fill: fillMetadataSchema.optional(),
+  batchId: z.string().optional(),
+  batchSequence: z.number().int().nonnegative().optional(),
+  sourceFileName: z.string().optional(),
+  duplicateKey: z.string().optional(),
+  reviewFlags: z.array(z.string()).optional()
+});
+
+export const batchSchema = z.object({
+  batchId: z.string().min(1),
+  name: z.string().min(1),
+  status: z.enum(batchStatuses),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  options: batchOptionsSchema,
+  jobIds: z.array(z.string()).default([]),
+  events: z.array(jobEventSchema).default([]),
+  caseInstanceId: z.string().optional(),
+  caseJobKey: z.string().optional(),
+  caseExternalId: z.string().optional(),
+  caseStage: caseStageSchema.optional(),
+  caseStatus: caseStatusSchema.optional(),
+  caseRuntimeMode: z.enum(["live", "fallback", "blocked"]).optional(),
+  caseStartedAt: z.string().optional(),
+  caseUpdatedAt: z.string().optional(),
+  exceptionCode: z.string().optional(),
+  exceptionMessage: z.string().optional()
+});
+
+export const batchSummarySchema = z.object({
+  batchId: z.string().min(1),
+  name: z.string().min(1),
+  status: z.enum(batchStatuses),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  totalJobs: z.number().int().nonnegative(),
+  counts: z.record(z.string(), z.number().int().nonnegative()),
+  caseStage: caseStageSchema.optional(),
+  caseStatus: caseStatusSchema.optional(),
+  caseRuntimeMode: z.enum(["live", "fallback", "blocked"]).optional(),
+  caseInstanceId: z.string().optional(),
+  caseExternalId: z.string().optional(),
+  exceptionCode: z.string().optional(),
+  exceptionMessage: z.string().optional()
 });
 
 export type JobStatus = (typeof jobStatuses)[number];
+export type BatchStatus = (typeof batchStatuses)[number];
+export type CaseStage = (typeof caseStages)[number];
+export type CaseStatus = (typeof caseStatuses)[number];
 export type ExtractionMetadata = z.infer<typeof extractionMetadataSchema>;
 export type FillMetadata = z.infer<typeof fillMetadataSchema>;
 export type QoyodMapping = z.infer<typeof mappingSchema>;
+export type QoyodMappingRule = z.infer<typeof mappingRuleSchema>;
 export type InvoiceLineItem = z.infer<typeof lineItemSchema>;
 export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
 export type ZatcaQr = z.infer<typeof qrTlvSchema>;
@@ -134,6 +234,15 @@ export type InvoiceDraft = z.infer<typeof invoiceDraftSchema>;
 export type ValidationResult = z.infer<typeof validationResultSchema>;
 export type JobEvent = z.infer<typeof jobEventSchema>;
 export type IntakeJob = z.infer<typeof intakeJobSchema>;
+export type BatchOptions = z.infer<typeof batchOptionsSchema>;
+export type InvoiceBatch = z.infer<typeof batchSchema>;
+export type BatchSummary = z.infer<typeof batchSummarySchema>;
+
+export type BatchDetails = {
+  batch: InvoiceBatch;
+  jobs: IntakeJob[];
+  summary: BatchSummary;
+};
 
 export function emptyDraft(): InvoiceDraft {
   return {
@@ -150,4 +259,68 @@ export function emptyDraft(): InvoiceDraft {
     attachmentRefs: [],
     lineItems: []
   };
+}
+
+export function money(value: number | undefined): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+export function normalizedText(value: string | undefined): string {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[ـ]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+export function recalculateLineTotals(line: InvoiceLineItem): InvoiceLineItem {
+  const net = Math.max(0, money(line.quantity * line.unitPrice - line.discount));
+  const taxAmount = money(net * (line.taxRate / 100));
+  const total = money(net + taxAmount);
+  return { ...line, taxAmount, total };
+}
+
+export function deriveHeaderTotalsFromLines(draft: InvoiceDraft): InvoiceDraft {
+  const normalizedLines = draft.lineItems.map(recalculateLineTotals);
+  return {
+    ...draft,
+    lineItems: normalizedLines,
+    subtotal: money(normalizedLines.reduce((sum, line) => sum + Math.max(0, line.quantity * line.unitPrice - line.discount), 0)),
+    vatTotal: money(normalizedLines.reduce((sum, line) => sum + line.taxAmount, 0)),
+    grandTotal: money(normalizedLines.reduce((sum, line) => sum + line.total, 0))
+  };
+}
+
+export function normalizeInvoiceDraft(draft: InvoiceDraft, options: { deriveHeaderTotals?: boolean } = {}): InvoiceDraft {
+  const normalized = {
+    ...draft,
+    lineItems: draft.lineItems.map(recalculateLineTotals)
+  };
+  return options.deriveHeaderTotals ? deriveHeaderTotalsFromLines(normalized) : normalized;
+}
+
+export function duplicateKeyForDraft(draft: InvoiceDraft): string | undefined {
+  const taxId = normalizedText(draft.supplierTaxId);
+  const invoiceNumber = normalizedText(draft.invoiceNumber);
+  if (!taxId || !invoiceNumber) return undefined;
+  return `${taxId}:${invoiceNumber}`;
+}
+
+export function batchStatusFromJobs(jobs: IntakeJob[]): BatchStatus {
+  if (!jobs.length) return "open";
+  if (jobs.every((job) => job.status === "draft_saved")) return "draft_saved";
+  if (jobs.some((job) => job.status === "error")) return "error";
+  if (jobs.some((job) => job.status === "qoyod_filling" || job.status === "robot_running")) return "qoyod_filling";
+  if (jobs.some((job) => job.status === "extracting" || job.status === "queued" || job.status === "uploaded")) return "processing";
+  if (jobs.every((job) => job.status === "ready_for_qoyod" || job.status === "ready_for_robot")) return "ready_for_qoyod";
+  if (jobs.some((job) => job.status === "needs_review")) return "needs_review";
+  return "mixed";
+}
+
+export function caseStageFromBatchStatus(status: BatchStatus): CaseStage {
+  if (status === "open" || status === "processing") return "Extraction And Reconciliation";
+  if (status === "needs_review" || status === "mixed") return "Finance Review And Mapping";
+  if (status === "ready_for_qoyod" || status === "qoyod_filling") return "Qoyod Drafting";
+  if (status === "error") return "Exception Resolution";
+  return "Closed";
 }

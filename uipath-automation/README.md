@@ -2,10 +2,10 @@
 
 Track 1 pilot for invoice intake into Qoyod without IXP, RPA, or Qoyod API access.
 
-- Phone PWA captures QR plus invoice photo/PDF.
-- Express API stores job state, uploads files to Orchestrator Storage, creates `InvoiceIntake` queue items, and can start a Maestro Case once CaseManagement runtime is available.
+- Phone PWA captures QR plus one or many invoice photos/PDFs as a batch.
+- Express API stores job state, uploads files to Orchestrator Storage, creates `InvoiceIntake` queue items, and can start one Maestro Case per uploaded batch once CaseManagement runtime is available.
 - Extraction runs through a modular backend worker: OpenAI vision/PDF first, DeepSeek JSON normalization second when configured.
-- Finance review remains human-controlled in the PWA or Coded Action App.
+- Finance review remains human-controlled in the PWA with batch filtering, reusable local mapping rules, and per-invoice release to Qoyod.
 - Qoyod fill is handled by a desktop Chrome extension using the user's logged-in Qoyod browser session. It saves draft only after explicit confirmation.
 
 ## Run Locally
@@ -49,7 +49,13 @@ Configure these per tenant in your local `.env`; no connected environment values
 - Case solution: `uipath/QoyodInvoiceIntakeSolution`
 - Case file: `uipath/QoyodInvoiceIntakeSolution/QoyodInvoiceIntakeCase/caseplan.json`
 
-The Case remains the visible Maestro design. If CaseManagement runtime is not available in your tenant, the backend can start extraction immediately after capture. Once runtime exists, a Case/API Workflow can call the same extraction endpoint.
+The Case remains the visible Maestro design. If CaseManagement runtime is not available in your tenant, the PWA shows a local Maestro Case cockpit that mirrors the same stages. Once runtime exists, a Case/API Workflow can call the same extraction and callback endpoints.
+
+Run the read-only preflight before a demo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\maestro-preflight.ps1
+```
 
 ## API Endpoints
 
@@ -57,8 +63,16 @@ Capture and review:
 
 ```http
 POST /api/captures
+POST /api/batches
+GET /api/batches
+GET /api/batches/{batchId}
+POST /api/batches/{batchId}/apply-mappings
+POST /api/batches/{batchId}/bulk-review
 GET /api/jobs/{jobId}
 POST /api/jobs/{jobId}/review
+GET /api/mappings
+POST /api/mappings
+DELETE /api/mappings/{ruleId}
 ```
 
 Extraction:
@@ -79,6 +93,19 @@ GET /api/fill/jobs/{jobId}/source
 POST /api/fill/jobs/{jobId}/status
 ```
 
+Maestro Case callbacks:
+
+```http
+GET /api/case/batches/{batchId}
+POST /api/case/batches/{batchId}/stage
+POST /api/case/batches/{batchId}/task
+POST /api/case/batches/{batchId}/exception
+POST /api/case/batches/{batchId}/close
+POST /api/case/jobs/{jobId}/extraction
+POST /api/case/jobs/{jobId}/review
+POST /api/case/jobs/{jobId}/exception
+```
+
 Deprecated `/api/robot/...` aliases remain for compatibility, but new work should use `/api/fill/...`.
 
 ## Chrome Extension
@@ -91,7 +118,7 @@ Load `extension/qoyod-filler` as an unpacked Chrome extension:
 4. Log into Qoyod in Chrome and open the draft form.
 5. Click the extension toolbar icon to open the side panel.
 6. Configure API base URL and fill token in the side panel.
-7. Calibrate selectors once, then claim, fill, review, and save draft.
+7. Optionally select a batch scope, then claim, fill, review, and save draft sequentially.
 
 The extension never stores Qoyod credentials and never clicks approve/submit.
 
@@ -108,5 +135,6 @@ The extension never stores Qoyod credentials and never clicks approve/submit.
 npm test
 npm run build
 npm audit --audit-level=low
+powershell -ExecutionPolicy Bypass -File scripts\maestro-preflight.ps1
 uip maestro case validate uipath/QoyodInvoiceIntakeSolution/QoyodInvoiceIntakeCase/caseplan.json --output json
 ```

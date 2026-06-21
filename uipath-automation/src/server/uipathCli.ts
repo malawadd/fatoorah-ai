@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { IntakeJob } from "../shared/invoice";
+import type { IntakeJob, InvoiceBatch } from "../shared/invoice";
 
 const execFileAsync = promisify(execFile);
 
@@ -230,6 +230,8 @@ export async function createInvoiceQueueItem(job: IntakeJob): Promise<UiPathComm
   const firstAttachment = job.draft.attachmentRefs[0];
   const content = {
     jobId: job.jobId,
+    batchId: job.batchId ?? "",
+    batchSequence: job.batchSequence ?? "",
     source: "phone-pwa",
     attachmentName: firstAttachment?.name ?? "",
     attachmentBucketPath: firstAttachment?.bucketPath ?? "",
@@ -281,12 +283,72 @@ export async function maybeStartInvoiceCase(job: IntakeJob): Promise<UiPathComma
   const firstAttachment = job.draft.attachmentRefs[0];
   const inputs = {
     jobId: job.jobId,
+    batchId: job.batchId ?? "",
+    batchSequence: job.batchSequence ?? "",
     bucketKey: firstAttachment?.bucketKey ?? config.bucketKey,
     bucketPath: firstAttachment?.bucketPath ?? "",
     attachmentName: firstAttachment?.name ?? "",
     attachmentMimeType: firstAttachment?.mimeType ?? "",
     qrTlv: job.draft.qrTlv ?? null
   };
+  const args = [
+    "maestro",
+    "case",
+    "process",
+    "run",
+    config.caseProcessKey || "<case-process-key>",
+    config.caseFolderKey || "<folder-key>",
+    "--inputs",
+    JSON.stringify(inputs),
+    "--validate"
+  ];
+
+  if (config.caseFeedId) {
+    args.push("--feed-id", config.caseFeedId);
+  }
+
+  args.push("--output", "json");
+
+  return runUip(args, config);
+}
+
+export async function maybeStartBatchCase(batch: InvoiceBatch, jobs: IntakeJob[]): Promise<UiPathCommandResult | undefined> {
+  const config = readConfig();
+  if (!config.startCase) {
+    return undefined;
+  }
+
+  if (config.enabled) {
+    const missing = !config.caseProcessKey
+      ? "UIPATH_CASE_PROCESS_KEY is required when UIPATH_START_CASE=true."
+      : !config.caseFolderKey
+        ? "UIPATH_CASE_FOLDER_KEY is required when UIPATH_START_CASE=true."
+        : undefined;
+    if (missing) {
+      return { mode: "uip", command: [], error: missing };
+    }
+  }
+
+  const inputs = {
+    batchId: batch.batchId,
+    batchName: batch.name,
+    invoiceCount: jobs.length,
+    jobIds: jobs.map((job) => job.jobId),
+    firstJobId: jobs[0]?.jobId ?? "",
+    bucketKey: config.bucketKey,
+    attachments: jobs.map((job) => {
+      const attachment = job.draft.attachmentRefs[0];
+      return {
+        jobId: job.jobId,
+        batchSequence: job.batchSequence ?? "",
+        attachmentName: attachment?.name ?? "",
+        attachmentMimeType: attachment?.mimeType ?? "",
+        bucketPath: attachment?.bucketPath ?? ""
+      };
+    }),
+    qrTlvByJob: Object.fromEntries(jobs.map((job) => [job.jobId, job.draft.qrTlv ?? null]))
+  };
+
   const args = [
     "maestro",
     "case",

@@ -3,17 +3,32 @@ import {
   Camera,
   CheckCircle2,
   FileText,
+  FolderOpen,
+  Layers3,
   Plus,
   RefreshCw,
   Save,
   ScanLine,
   Trash2,
-  Upload
+  Upload,
+  Wand2
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { IntakeJob, InvoiceDraft, InvoiceLineItem, JobStatus, QoyodMapping } from "../shared/invoice";
+import type { BatchDetails, BatchSummary, CaseStage, IntakeJob, InvoiceDraft, InvoiceLineItem, JobStatus, QoyodMapping, QoyodMappingRule } from "../shared/invoice";
+import { caseStages, deriveHeaderTotalsFromLines, normalizeInvoiceDraft, recalculateLineTotals } from "../shared/invoice";
 import { decodeZatcaTlv } from "../shared/zatca";
-import { getJob, saveReview, uploadCapture } from "./api";
+import {
+  applyBatchMappings,
+  bulkReviewBatch,
+  deleteMappingRule,
+  getBatch,
+  getJob,
+  listBatches,
+  listMappings,
+  saveMappingRule,
+  saveReview,
+  uploadBatch
+} from "./api";
 
 const statusLabels: Record<JobStatus, string> = {
   uploaded: "Uploaded",
@@ -35,6 +50,14 @@ const emptyMapping: QoyodMapping = {
   label: ""
 };
 
+const emptyRule = {
+  type: "expense" as QoyodMapping["type"],
+  label: "",
+  matchText: "",
+  supplierScoped: true,
+  matchMode: "contains" as QoyodMappingRule["matchMode"]
+};
+
 function numberValue(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -54,58 +77,143 @@ function newLineItem(): InvoiceLineItem {
   };
 }
 
-function recalcLine(line: InvoiceLineItem): InvoiceLineItem {
-  const net = Math.max(0, numberValue(line.quantity) * numberValue(line.unitPrice) - numberValue(line.discount));
-  const taxAmount = Math.round(net * (numberValue(line.taxRate) / 100) * 100) / 100;
-  const total = Math.round((net + taxAmount) * 100) / 100;
-  return { ...line, taxAmount, total };
+function statusClass(status: string | undefined): string {
+  return `status-${status ?? "uploaded"}`;
 }
 
-function deriveHeaderTotals(draft: InvoiceDraft): InvoiceDraft {
-  const subtotal = Math.round(
-    draft.lineItems.reduce((sum, line) => sum + Math.max(0, line.quantity * line.unitPrice - line.discount), 0) * 100
-  ) / 100;
-  const vatTotal = Math.round(draft.lineItems.reduce((sum, line) => sum + line.taxAmount, 0) * 100) / 100;
-  const grandTotal = Math.round(draft.lineItems.reduce((sum, line) => sum + line.total, 0) * 100) / 100;
-  return { ...draft, subtotal, vatTotal, grandTotal };
+function count(summary: BatchSummary | undefined, status: JobStatus): number {
+  return summary?.counts[status] ?? 0;
+}
+
+function qrLines(value: string): string[] {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function mergeBatchJob(batch: BatchDetails | null, updated: IntakeJob): BatchDetails | null {
+  if (!batch) return batch;
+  return {
+    ...batch,
+    jobs: batch.jobs.map((job) => job.jobId === updated.jobId ? updated : job)
+  };
+}
+
+function CaseCockpit({ batch }: { batch: BatchDetails }) {
+  const currentStage: CaseStage = batch.batch.caseStage ?? batch.summary.caseStage ?? "Capture Intake";
+  const currentIndex = Math.max(0, caseStages.indexOf(currentStage));
+  const runtime = batch.batch.caseRuntimeMode ?? batch.summary.caseRuntimeMode ?? "fallback";
+  const status = batch.batch.caseStatus ?? batch.summary.caseStatus ?? "fallback";
+  const identifier = batch.batch.caseInstanceId ?? batch.summary.caseInstanceId ?? batch.batch.caseExternalId ?? batch.summary.caseExternalId;
+  const runtimeLabel = runtime === "live" ? "Live Maestro" : runtime === "blocked" ? "Maestro blocked" : "Local cockpit fallback";
+
+  return (
+    <div className={`case-cockpit case-${status}`}>
+      <div className="case-cockpit-header">
+        <div>
+          <span>Maestro Case</span>
+          <strong>{currentStage}</strong>
+        </div>
+        <div className="case-runtime">
+          <span>{runtimeLabel}</span>
+          <code>{identifier ? identifier.slice(0, 12) : batch.batch.batchId.slice(0, 8)}</code>
+        </div>
+      </div>
+
+      <div className="case-stage-strip" aria-label="Maestro Case stages">
+        {caseStages.map((stage, index) => {
+          const stageClass = stage === currentStage
+            ? "active"
+            : index < currentIndex || currentStage === "Closed"
+              ? "done"
+              : "pending";
+          return (
+            <span className={`case-stage ${stageClass}`} key={stage}>
+              {stage}
+            </span>
+          );
+        })}
+      </div>
+
+      {(batch.batch.exceptionCode || batch.summary.exceptionCode) && (
+        <div className="case-exception">
+          <AlertTriangle size={16} />
+          <span>{batch.batch.exceptionCode ?? batch.summary.exceptionCode}</span>
+          {(batch.batch.exceptionMessage || batch.summary.exceptionMessage) && <small>{batch.batch.exceptionMessage ?? batch.summary.exceptionMessage}</small>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function App() {
-  const [file, setFile] = useState<File | null>(null);
-  const [qrPayload, setQrPayload] = useState("");
-  const [job, setJob] = useState<IntakeJob | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [batchName, setBatchName] = useState("");
+  const [qrPayloadText, setQrPayloadText] = useState("");
+  const [batches, setBatches] = useState<BatchSummary[]>([]);
+  const [currentBatch, setCurrentBatch] = useState<BatchDetails | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [draft, setDraft] = useState<InvoiceDraft | null>(null);
+  const [mappings, setMappings] = useState<QoyodMappingRule[]>([]);
+  const [ruleForm, setRuleForm] = useState(emptyRule);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
   const [cameraActive, setCameraActive] = useState(false);
   const [scanMessage, setScanMessage] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanTimerRef = useRef<number | null>(null);
 
-  const decodedQr = useMemo(() => decodeZatcaTlv(qrPayload), [qrPayload]);
+  const selectedJob = useMemo(
+    () => currentBatch?.jobs.find((job) => job.jobId === selectedJobId) ?? null,
+    [currentBatch, selectedJobId]
+  );
+  const decodedQr = useMemo(() => decodeZatcaTlv(qrLines(qrPayloadText)[0] ?? ""), [qrPayloadText]);
+  const visibleJobs = useMemo(() => {
+    const jobs = currentBatch?.jobs ?? [];
+    return statusFilter === "all" ? jobs : jobs.filter((job) => job.status === statusFilter);
+  }, [currentBatch, statusFilter]);
 
   useEffect(() => {
-    if (!job || !["queued", "extracting", "qoyod_filling", "robot_running"].includes(job.status)) {
+    refreshAll().catch((requestError) => setError(requestError instanceof Error ? requestError.message : String(requestError)));
+    return () => stopCamera();
+  }, []);
+
+  useEffect(() => {
+    if (!currentBatch || !currentBatch.jobs.some((job) => ["queued", "extracting", "qoyod_filling", "robot_running"].includes(job.status))) {
       return;
     }
 
-    const timer = window.setInterval(async () => {
-      try {
-        const refreshed = await getJob(job.jobId);
-        setJob(refreshed);
-        setDraft(refreshed.draft);
-      } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : String(requestError));
-      }
+    const timer = window.setInterval(() => {
+      refreshBatch(currentBatch.batch.batchId).catch((requestError) => setError(requestError instanceof Error ? requestError.message : String(requestError)));
     }, 2500);
 
     return () => window.clearInterval(timer);
-  }, [job]);
+  }, [currentBatch]);
 
   useEffect(() => {
-    return () => stopCamera();
-  }, []);
+    const nextJob = currentBatch?.jobs.find((job) => job.jobId === selectedJobId) ?? currentBatch?.jobs[0] ?? null;
+    setSelectedJobId(nextJob?.jobId ?? "");
+    setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
+  }, [currentBatch?.batch.batchId]);
+
+  async function refreshAll() {
+    const [batchList, mappingList] = await Promise.all([listBatches(), listMappings()]);
+    setBatches(batchList);
+    setMappings(mappingList);
+    if (!currentBatch && batchList[0]) {
+      await refreshBatch(batchList[0].batchId);
+    }
+  }
+
+  async function refreshBatch(batchId: string) {
+    const [details, batchList] = await Promise.all([getBatch(batchId), listBatches()]);
+    setCurrentBatch(details);
+    setBatches(batchList);
+    const nextJob = details.jobs.find((job) => job.jobId === selectedJobId) ?? details.jobs[0] ?? null;
+    setSelectedJobId(nextJob?.jobId ?? "");
+    setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
+  }
 
   async function startCamera() {
     setError("");
@@ -116,7 +224,7 @@ export function App() {
       : null;
 
     if (!barcodeDetector) {
-      setScanMessage("QR scanner unavailable on this browser. Paste the QR payload or upload the invoice.");
+      setScanMessage("QR scanner unavailable on this browser. Paste QR payloads or upload the invoice images.");
       return;
     }
 
@@ -137,8 +245,8 @@ export function App() {
       const codes = await barcodeDetector.detect(videoRef.current).catch(() => []);
       const qr = codes[0]?.rawValue;
       if (qr) {
-        setQrPayload(qr);
-        setScanMessage("QR captured.");
+        setQrPayloadText((current) => current ? `${current.trim()}\n${qr}` : qr);
+        setScanMessage("QR captured. Scan another or upload the batch.");
         stopCamera();
       }
     }, 600);
@@ -154,23 +262,38 @@ export function App() {
     setCameraActive(false);
   }
 
-  async function submitCapture() {
-    if (!file) {
-      setError("Choose a photo or PDF first.");
+  async function submitBatch() {
+    if (!files.length) {
+      setError("Choose at least one invoice photo or PDF first.");
       return;
     }
 
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      const created = await uploadCapture(file, qrPayload);
-      setJob(created);
-      setDraft(created.draft);
+      const details = await uploadBatch(files, batchName, qrLines(qrPayloadText));
+      setCurrentBatch(details);
+      setBatches(await listBatches());
+      const firstJob = details.jobs[0] ?? null;
+      setSelectedJobId(firstJob?.jobId ?? "");
+      setDraft(firstJob ? normalizeInvoiceDraft(firstJob.draft) : null);
+      setFiles([]);
+      setBatchName("");
+      setQrPayloadText("");
+      setNotice(`Created ${details.jobs.length} invoice job(s).`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       setBusy(false);
     }
+  }
+
+  function selectJob(job: IntakeJob) {
+    setSelectedJobId(job.jobId);
+    setDraft(normalizeInvoiceDraft(job.draft));
+    setError("");
+    setNotice("");
   }
 
   function updateDraft(patch: Partial<InvoiceDraft>) {
@@ -180,8 +303,8 @@ export function App() {
 
   function updateLine(lineId: string, patch: Partial<InvoiceLineItem>) {
     if (!draft) return;
-    const nextLines = draft.lineItems.map((line) => (line.id === lineId ? recalcLine({ ...line, ...patch }) : line));
-    setDraft(deriveHeaderTotals({ ...draft, lineItems: nextLines }));
+    const nextLines = draft.lineItems.map((line) => (line.id === lineId ? recalculateLineTotals({ ...line, ...patch }) : line));
+    setDraft(deriveHeaderTotalsFromLines({ ...draft, lineItems: nextLines }));
   }
 
   function updateLineMapping(lineId: string, patch: Partial<QoyodMapping>) {
@@ -206,17 +329,127 @@ export function App() {
 
   function removeLine(lineId: string) {
     if (!draft) return;
-    setDraft(deriveHeaderTotals({ ...draft, lineItems: draft.lineItems.filter((line) => line.id !== lineId) }));
+    setDraft(deriveHeaderTotalsFromLines({ ...draft, lineItems: draft.lineItems.filter((line) => line.id !== lineId) }));
   }
 
   async function submitReview() {
-    if (!job || !draft) return;
+    if (!selectedJob || !draft) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const updated = await saveReview(selectedJob.jobId, draft);
+      setCurrentBatch((batch) => mergeBatchJob(batch, updated));
+      setDraft(normalizeInvoiceDraft(updated.draft));
+      setNotice(updated.status === "ready_for_qoyod" ? "Invoice is ready for Qoyod." : "Review saved with blocking checks.");
+      if (updated.batchId) await refreshBatch(updated.batchId);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyMappings() {
+    if (!currentBatch || currentBatch.batch.batchId === "unbatched") return;
     setBusy(true);
     setError("");
     try {
-      const updated = await saveReview(job.jobId, draft);
-      setJob(updated);
-      setDraft(updated.draft);
+      const updated = await applyBatchMappings(currentBatch.batch.batchId);
+      setCurrentBatch(updated);
+      const nextJob = updated.jobs.find((job) => job.jobId === selectedJobId) ?? updated.jobs[0] ?? null;
+      setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
+      setNotice(`Applied ${updated.appliedCount} mapping rule(s).`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAllReviewed() {
+    if (!currentBatch || currentBatch.batch.batchId === "unbatched") return;
+    const reviews = currentBatch.jobs.map((job) => ({
+      jobId: job.jobId,
+      draft: job.jobId === selectedJobId && draft ? draft : job.draft
+    }));
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await bulkReviewBatch(currentBatch.batch.batchId, reviews);
+      setCurrentBatch(updated);
+      const nextJob = updated.jobs.find((job) => job.jobId === selectedJobId) ?? updated.jobs[0] ?? null;
+      setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
+      setNotice("Batch review saved. Valid invoices are ready for Qoyod.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createRuleFromLine(line: InvoiceLineItem) {
+    if (!draft || !line.selectedQoyodMapping?.label) {
+      setError("Type a line mapping before saving a rule.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await saveMappingRule({
+        type: line.selectedQoyodMapping.type,
+        qoyodId: line.selectedQoyodMapping.id,
+        label: line.selectedQoyodMapping.label,
+        supplierName: draft.supplierName,
+        supplierTaxId: draft.supplierTaxId,
+        matchText: line.description,
+        matchMode: "contains",
+        taxRate: line.taxRate,
+        active: true
+      });
+      setMappings(await listMappings());
+      setNotice("Mapping rule saved from this line.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveRuleFromForm() {
+    if (!ruleForm.label.trim() || !ruleForm.matchText.trim()) {
+      setError("Mapping label and match text are required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await saveMappingRule({
+        type: ruleForm.type,
+        qoyodId: ruleForm.label.trim(),
+        label: ruleForm.label.trim(),
+        matchText: ruleForm.matchText.trim(),
+        matchMode: ruleForm.matchMode,
+        supplierName: ruleForm.supplierScoped ? draft?.supplierName : undefined,
+        supplierTaxId: ruleForm.supplierScoped ? draft?.supplierTaxId : undefined,
+        active: true
+      });
+      setRuleForm(emptyRule);
+      setMappings(await listMappings());
+      setNotice("Mapping rule saved.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeRule(ruleId: string) {
+    setBusy(true);
+    try {
+      await deleteMappingRule(ruleId);
+      setMappings(await listMappings());
+      setNotice("Mapping rule removed.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -228,26 +461,30 @@ export function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <FileText size={24} aria-hidden="true" />
+          <Layers3 size={24} aria-hidden="true" />
           <div>
             <strong>Qoyod Intake</strong>
-            <span>Invoice draft capture</span>
+            <span>Batch invoice review and draft handoff</span>
           </div>
         </div>
-        <div className={`status-pill status-${job?.status ?? "uploaded"}`}>{job ? statusLabels[job.status] : "No job"}</div>
+        <div className={`status-pill ${statusClass(currentBatch?.summary.status)}`}>
+          {currentBatch ? `${currentBatch.summary.totalJobs} invoices` : "No batch"}
+        </div>
       </header>
 
-      <main className="workspace">
+      <main className="workspace batch-workspace">
         <section className="panel capture-panel">
           <div className="panel-heading">
-            <h1>Capture</h1>
-            <button className="icon-button" title="Refresh job" disabled={!job || busy} onClick={() => job && getJob(job.jobId).then((refreshed) => {
-              setJob(refreshed);
-              setDraft(refreshed.draft);
-            })}>
+            <h1>Capture Batch</h1>
+            <button className="icon-button" title="Refresh" disabled={busy} onClick={() => refreshAll()}>
               <RefreshCw size={18} />
             </button>
           </div>
+
+          <label className="field">
+            <span>Batch name</span>
+            <input value={batchName} onChange={(event) => setBatchName(event.target.value)} placeholder="June supplier invoices" />
+          </label>
 
           <div className="scan-box">
             <video ref={videoRef} className={cameraActive ? "scanner active" : "scanner"} muted playsInline />
@@ -267,8 +504,8 @@ export function App() {
           </div>
 
           <label className="field">
-            <span>QR payload</span>
-            <textarea value={qrPayload} onChange={(event) => setQrPayload(event.target.value)} rows={4} />
+            <span>QR payloads, one per line in file order</span>
+            <textarea value={qrPayloadText} onChange={(event) => setQrPayloadText(event.target.value)} rows={4} />
           </label>
 
           {decodedQr && (
@@ -281,150 +518,286 @@ export function App() {
 
           <label className="file-drop">
             <Upload size={22} aria-hidden="true" />
-            <span>{file ? file.name : "Choose invoice photo or PDF"}</span>
+            <span>{files.length ? `${files.length} file(s) selected` : "Choose invoice photos or PDFs"}</span>
             <input
               type="file"
+              multiple
               accept="image/jpeg,image/png,image/webp,application/pdf"
               capture="environment"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
             />
           </label>
 
-          <button className="primary-button" type="button" disabled={busy || !file} onClick={submitCapture}>
+          <button className="primary-button" type="button" disabled={busy || !files.length} onClick={submitBatch}>
             <Upload size={18} />
-            Upload capture
+            Upload batch
           </button>
 
+          <div className="batch-list">
+            <h2>Batches</h2>
+            {batches.length === 0 ? (
+              <div className="notice">No batches yet.</div>
+            ) : batches.map((batch) => (
+              <button
+                key={batch.batchId}
+                className={`batch-row ${currentBatch?.batch.batchId === batch.batchId ? "active" : ""}`}
+                type="button"
+                onClick={() => refreshBatch(batch.batchId)}
+              >
+                <FolderOpen size={16} />
+                <span>
+                  <strong>{batch.name}</strong>
+                  <small>{batch.totalJobs} invoices · {batch.status.replace(/_/g, " ")}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+
           {scanMessage && <div className="notice">{scanMessage}</div>}
+          {notice && <div className="notice success">{notice}</div>}
           {error && <div className="notice error">{error}</div>}
         </section>
 
-        <section className="panel review-panel">
-          <div className="panel-heading">
-            <h2>Review</h2>
-            {job && <code>{job.jobId.slice(0, 8)}</code>}
-          </div>
-
-          {!draft ? (
+        <section className="panel batch-panel">
+          {!currentBatch ? (
             <div className="empty-state">
               <FileText size={36} />
-              <span>Waiting for capture</span>
+              <span>Upload or select a batch</span>
             </div>
           ) : (
             <>
-              <div className="form-grid">
-                <label className="field">
-                  <span>Supplier</span>
-                  <input value={draft.supplierName} onChange={(event) => updateDraft({ supplierName: event.target.value })} />
-                </label>
-                <label className="field">
-                  <span>Tax ID</span>
-                  <input value={draft.supplierTaxId} onChange={(event) => updateDraft({ supplierTaxId: event.target.value })} />
-                </label>
-                <label className="field">
-                  <span>Invoice no.</span>
-                  <input value={draft.invoiceNumber} onChange={(event) => updateDraft({ invoiceNumber: event.target.value })} />
-                </label>
-                <label className="field">
-                  <span>Issue date</span>
-                  <input type="date" value={draft.issueDate} onChange={(event) => updateDraft({ issueDate: event.target.value })} />
-                </label>
-                <label className="field">
-                  <span>Due date</span>
-                  <input type="date" value={draft.dueDate} onChange={(event) => updateDraft({ dueDate: event.target.value })} />
-                </label>
-                <label className="field">
-                  <span>Currency</span>
-                  <input value={draft.currency} onChange={(event) => updateDraft({ currency: event.target.value.toUpperCase() })} />
-                </label>
+              <div className="panel-heading">
+                <div>
+                  <h2>{currentBatch.batch.name}</h2>
+                  <code>{currentBatch.batch.batchId.slice(0, 8)}</code>
+                </div>
+                <div className="actions">
+                  <button className="secondary-button" type="button" disabled={busy || currentBatch.batch.batchId === "unbatched"} onClick={applyMappings}>
+                    <Wand2 size={18} />
+                    Apply mappings
+                  </button>
+                  <button className="secondary-button" type="button" disabled={busy || currentBatch.batch.batchId === "unbatched"} onClick={saveAllReviewed}>
+                    <Save size={18} />
+                    Save batch review
+                  </button>
+                </div>
               </div>
 
-              <div className="totals-strip">
-                <label className="field">
-                  <span>Subtotal</span>
-                  <input type="number" value={draft.subtotal} onChange={(event) => updateDraft({ subtotal: numberValue(event.target.value) })} />
-                </label>
-                <label className="field">
-                  <span>VAT</span>
-                  <input type="number" value={draft.vatTotal} onChange={(event) => updateDraft({ vatTotal: numberValue(event.target.value) })} />
-                </label>
-                <label className="field">
-                  <span>Grand total</span>
-                  <input type="number" value={draft.grandTotal} onChange={(event) => updateDraft({ grandTotal: numberValue(event.target.value) })} />
-                </label>
-              </div>
+              <CaseCockpit batch={currentBatch} />
 
-              <div className="line-header">
-                <h3>Line items</h3>
-                <button className="secondary-button" type="button" onClick={addLine}>
-                  <Plus size={18} />
-                  Add line
+              <div className="metrics-strip">
+                <button type="button" className={statusFilter === "all" ? "metric active" : "metric"} onClick={() => setStatusFilter("all")}>
+                  <strong>{currentBatch.summary.totalJobs}</strong>
+                  <span>All</span>
+                </button>
+                <button type="button" className={statusFilter === "needs_review" ? "metric active" : "metric"} onClick={() => setStatusFilter("needs_review")}>
+                  <strong>{count(currentBatch.summary, "needs_review")}</strong>
+                  <span>Review</span>
+                </button>
+                <button type="button" className={statusFilter === "ready_for_qoyod" ? "metric active" : "metric"} onClick={() => setStatusFilter("ready_for_qoyod")}>
+                  <strong>{count(currentBatch.summary, "ready_for_qoyod")}</strong>
+                  <span>Ready</span>
+                </button>
+                <button type="button" className={statusFilter === "draft_saved" ? "metric active" : "metric"} onClick={() => setStatusFilter("draft_saved")}>
+                  <strong>{count(currentBatch.summary, "draft_saved")}</strong>
+                  <span>Drafts</span>
                 </button>
               </div>
 
-              <div className="line-table">
-                {draft.lineItems.map((line) => (
-                  <div className="line-row" key={line.id}>
-                    <label className="field span-2">
-                      <span>Description</span>
-                      <input value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} />
-                    </label>
-                    <label className="field">
-                      <span>Qty</span>
-                      <input type="number" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: numberValue(event.target.value) })} />
-                    </label>
-                    <label className="field">
-                      <span>Unit</span>
-                      <input type="number" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: numberValue(event.target.value) })} />
-                    </label>
-                    <label className="field">
-                      <span>Disc.</span>
-                      <input type="number" value={line.discount} onChange={(event) => updateLine(line.id, { discount: numberValue(event.target.value) })} />
-                    </label>
-                    <label className="field">
-                      <span>Tax %</span>
-                      <input type="number" value={line.taxRate} onChange={(event) => updateLine(line.id, { taxRate: numberValue(event.target.value) })} />
-                    </label>
-                    <label className="field">
-                      <span>Mapping</span>
-                      <input
-                        value={line.selectedQoyodMapping?.label ?? ""}
-                        onChange={(event) => updateLineMapping(line.id, { label: event.target.value, id: event.target.value.trim() })}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Type</span>
-                      <select
-                        value={line.selectedQoyodMapping?.type ?? "expense"}
-                        onChange={(event) => updateLineMapping(line.id, { type: event.target.value as QoyodMapping["type"] })}
-                      >
-                        <option value="expense">Expense</option>
-                        <option value="item">Item</option>
-                      </select>
-                    </label>
-                    <div className="line-total">{line.total.toFixed(2)}</div>
-                    <button className="icon-button danger" type="button" title="Remove line" onClick={() => removeLine(line.id)}>
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+              <div className="batch-table">
+                {visibleJobs.map((job) => (
+                  <button
+                    key={job.jobId}
+                    type="button"
+                    className={`invoice-row ${selectedJobId === job.jobId ? "active" : ""}`}
+                    onClick={() => selectJob(job)}
+                  >
+                    <span>{job.batchSequence ?? "-"}</span>
+                    <strong>{job.draft.supplierName || "Unknown supplier"}</strong>
+                    <span>{job.draft.invoiceNumber || job.jobId.slice(0, 8)}</span>
+                    <span>{job.draft.grandTotal.toFixed(2)} {job.draft.currency}</span>
+                    <span className={`row-status ${statusClass(job.status)}`}>{statusLabels[job.status]}</span>
+                    <span>{job.reviewFlags?.includes("duplicate_invoice") ? "Duplicate" : `${job.draft.lineItems.length} lines`}</span>
+                  </button>
                 ))}
               </div>
 
-              {job?.validation && (
-                <div className={job.validation.canSubmitToRobot ? "validation ok" : "validation"}>
-                  <div className="validation-title">
-                    {job.validation.canSubmitToRobot ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-                    <span>{job.validation.canSubmitToRobot ? "Ready" : "Blocked"}</span>
-                  </div>
-                  {job.validation.blocking.map((item) => <p key={item}>{item}</p>)}
-                  {job.validation.warnings.map((item) => <p key={item}>{item}</p>)}
+              {selectedJob && draft && (
+                <div className="review-layout">
+                  <section className="review-editor">
+                    <div className="panel-heading">
+                      <h3>Review Invoice</h3>
+                      <code>{selectedJob.jobId.slice(0, 8)}</code>
+                    </div>
+
+                    <div className="form-grid">
+                      <label className="field">
+                        <span>Supplier</span>
+                        <input value={draft.supplierName} onChange={(event) => updateDraft({ supplierName: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Tax ID</span>
+                        <input value={draft.supplierTaxId} onChange={(event) => updateDraft({ supplierTaxId: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Invoice no.</span>
+                        <input value={draft.invoiceNumber} onChange={(event) => updateDraft({ invoiceNumber: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Issue date</span>
+                        <input type="date" value={draft.issueDate} onChange={(event) => updateDraft({ issueDate: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Due date</span>
+                        <input type="date" value={draft.dueDate} onChange={(event) => updateDraft({ dueDate: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Currency</span>
+                        <input value={draft.currency} onChange={(event) => updateDraft({ currency: event.target.value.toUpperCase() })} />
+                      </label>
+                    </div>
+
+                    <div className="totals-strip">
+                      <label className="field">
+                        <span>Subtotal</span>
+                        <input type="number" value={draft.subtotal} onChange={(event) => updateDraft({ subtotal: numberValue(event.target.value) })} />
+                      </label>
+                      <label className="field">
+                        <span>VAT</span>
+                        <input type="number" value={draft.vatTotal} onChange={(event) => updateDraft({ vatTotal: numberValue(event.target.value) })} />
+                      </label>
+                      <label className="field">
+                        <span>Grand total</span>
+                        <input type="number" value={draft.grandTotal} onChange={(event) => updateDraft({ grandTotal: numberValue(event.target.value) })} />
+                      </label>
+                    </div>
+
+                    <div className="line-header">
+                      <h3>Line items</h3>
+                      <button className="secondary-button" type="button" onClick={addLine}>
+                        <Plus size={18} />
+                        Add line
+                      </button>
+                    </div>
+
+                    <div className="line-table">
+                      {draft.lineItems.map((line) => (
+                        <div className="line-row" key={line.id}>
+                          <label className="field span-2">
+                            <span>Description</span>
+                            <input value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} />
+                          </label>
+                          <label className="field">
+                            <span>Qty</span>
+                            <input type="number" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: numberValue(event.target.value) })} />
+                          </label>
+                          <label className="field">
+                            <span>Unit</span>
+                            <input type="number" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: numberValue(event.target.value) })} />
+                          </label>
+                          <label className="field">
+                            <span>Disc.</span>
+                            <input type="number" value={line.discount} onChange={(event) => updateLine(line.id, { discount: numberValue(event.target.value) })} />
+                          </label>
+                          <label className="field">
+                            <span>Tax %</span>
+                            <input type="number" value={line.taxRate} onChange={(event) => updateLine(line.id, { taxRate: numberValue(event.target.value) })} />
+                          </label>
+                          <label className="field">
+                            <span>Mapping</span>
+                            <input
+                              value={line.selectedQoyodMapping?.label ?? ""}
+                              onChange={(event) => updateLineMapping(line.id, { label: event.target.value, id: event.target.value.trim() })}
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Type</span>
+                            <select
+                              value={line.selectedQoyodMapping?.type ?? "expense"}
+                              onChange={(event) => updateLineMapping(line.id, { type: event.target.value as QoyodMapping["type"] })}
+                            >
+                              <option value="expense">Expense</option>
+                              <option value="item">Item</option>
+                            </select>
+                          </label>
+                          <div className="line-total">
+                            <small>Incl. VAT</small>
+                            {line.total.toFixed(2)}
+                          </div>
+                          <button className="icon-button" type="button" title="Save mapping rule" onClick={() => createRuleFromLine(line)}>
+                            <Wand2 size={18} />
+                          </button>
+                          <button className="icon-button danger" type="button" title="Remove line" onClick={() => removeLine(line.id)}>
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {selectedJob.validation && (
+                      <div className={selectedJob.validation.canSubmitToRobot ? "validation ok" : "validation"}>
+                        <div className="validation-title">
+                          {selectedJob.validation.canSubmitToRobot ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                          <span>{selectedJob.validation.canSubmitToRobot ? "Ready" : "Blocked"}</span>
+                        </div>
+                        {selectedJob.reviewFlags?.includes("duplicate_invoice") && <p>Duplicate supplier tax ID and invoice number found.</p>}
+                        {selectedJob.validation.blocking.map((item) => <p key={item}>{item}</p>)}
+                        {selectedJob.validation.warnings.map((item) => <p key={item}>{item}</p>)}
+                      </div>
+                    )}
+
+                    <button className="primary-button" type="button" disabled={busy} onClick={submitReview}>
+                      <Save size={18} />
+                      Save invoice review
+                    </button>
+                  </section>
+
+                  <aside className="mapping-panel">
+                    <h3>Mapping Library</h3>
+                    <div className="mapping-form">
+                      <label className="field">
+                        <span>Qoyod mapping label</span>
+                        <input value={ruleForm.label} onChange={(event) => setRuleForm({ ...ruleForm, label: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Match text</span>
+                        <input value={ruleForm.matchText} onChange={(event) => setRuleForm({ ...ruleForm, matchText: event.target.value })} />
+                      </label>
+                      <label className="field">
+                        <span>Type</span>
+                        <select value={ruleForm.type} onChange={(event) => setRuleForm({ ...ruleForm, type: event.target.value as QoyodMapping["type"] })}>
+                          <option value="expense">Expense</option>
+                          <option value="item">Item</option>
+                        </select>
+                      </label>
+                      <label className="checkbox-field">
+                        <input type="checkbox" checked={ruleForm.supplierScoped} onChange={(event) => setRuleForm({ ...ruleForm, supplierScoped: event.target.checked })} />
+                        <span>Limit to current supplier</span>
+                      </label>
+                      <button className="secondary-button" type="button" disabled={busy} onClick={saveRuleFromForm}>
+                        <Wand2 size={18} />
+                        Save rule
+                      </button>
+                    </div>
+
+                    <div className="mapping-list">
+                      {mappings.length === 0 ? (
+                        <div className="notice">No mapping rules yet.</div>
+                      ) : mappings.slice(0, 12).map((rule) => (
+                        <div className="mapping-row" key={rule.ruleId}>
+                          <span>
+                            <strong>{rule.label}</strong>
+                            <small>{rule.matchText} · {rule.type}</small>
+                          </span>
+                          <button className="icon-button danger" type="button" title="Delete rule" onClick={() => removeRule(rule.ruleId)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </aside>
                 </div>
               )}
-
-              <button className="primary-button" type="button" disabled={busy || !job} onClick={submitReview}>
-                <Save size={18} />
-                Save review
-              </button>
             </>
           )}
         </section>

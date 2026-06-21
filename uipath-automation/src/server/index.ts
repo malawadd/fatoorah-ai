@@ -1,17 +1,17 @@
-import "dotenv/config";
+import "./env";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
 import multer from "multer";
 import path from "node:path";
 import { v4 as uuid } from "uuid";
 import { ZodError } from "zod";
-import type { AttachmentRef, IntakeJob, InvoiceDraft, JobEvent } from "../shared/invoice";
-import { invoiceDraftSchema, jobStatuses } from "../shared/invoice";
+import type { AttachmentRef, CaseStage, CaseStatus, IntakeJob, InvoiceBatch, InvoiceDraft, JobEvent } from "../shared/invoice";
+import { caseStages, caseStatuses, invoiceDraftSchema, jobStatuses, normalizeInvoiceDraft } from "../shared/invoice";
 import { decodeZatcaTlv } from "../shared/zatca";
 import { buildExtractionJobInput, extractInvoiceDraft, startExternalExtraction } from "./extraction";
 import { reconcileDraft } from "./reconciliation";
 import { jobStore, UPLOAD_DIR } from "./store";
-import { createInvoiceQueueItem, maybeStartInvoiceCase, uploadAttachmentToBucket } from "./uipathCli";
+import { createInvoiceQueueItem, maybeStartBatchCase, maybeStartInvoiceCase, uploadAttachmentToBucket } from "./uipathCli";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -30,6 +30,7 @@ const upload = multer({
     callback(null, allowedMimeTypes.has(file.mimetype));
   }
 });
+const batchUpload = upload.array("documents", 50);
 
 const app = express();
 app.use(cors());
@@ -81,6 +82,41 @@ function draftFromCapture(attachment: AttachmentRef, qrPayload?: string): Invoic
     qrTlv,
     lineItems: []
   };
+}
+
+function requestFiles(request: Request): Express.Multer.File[] {
+  if (Array.isArray(request.files)) return request.files;
+  if (request.file) return [request.file];
+  return [];
+}
+
+function parseQrPayloads(body: Record<string, unknown>): Array<string | undefined> | Record<string, string> {
+  const raw = typeof body.qrPayloads === "string" ? body.qrPayloads.trim() : "";
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => typeof item === "string" && item.trim() ? item.trim() : undefined);
+      }
+      if (parsed && typeof parsed === "object") {
+        return Object.fromEntries(
+          Object.entries(parsed as Record<string, unknown>)
+            .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+            .map(([key, value]) => [key, value.trim()])
+        );
+      }
+    } catch {
+      return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    }
+  }
+
+  const single = typeof body.qrPayload === "string" && body.qrPayload.trim() ? body.qrPayload.trim() : undefined;
+  return single ? [single] : [];
+}
+
+function qrPayloadForFile(payloads: Array<string | undefined> | Record<string, string>, file: Express.Multer.File, index: number): string | undefined {
+  if (Array.isArray(payloads)) return payloads[index];
+  return payloads[file.originalname] ?? payloads[String(index)] ?? payloads[String(index + 1)];
 }
 
 function routeParam(value: string | string[]): string {
@@ -136,6 +172,14 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function optionalCaseStage(value: unknown): CaseStage | undefined {
+  return caseStages.includes(value as CaseStage) ? value as CaseStage : undefined;
+}
+
+function optionalCaseStatus(value: unknown): CaseStatus | undefined {
+  return caseStatuses.includes(value as CaseStatus) ? value as CaseStatus : undefined;
+}
+
 function casePatchFromBody(body: unknown): Pick<IntakeJob, "caseInstanceId" | "caseJobKey" | "caseExternalId" | "caseStage"> {
   const payload = body && typeof body === "object" ? body as Record<string, unknown> : {};
   return {
@@ -153,6 +197,44 @@ function caseStartPatch(data: unknown): Pick<IntakeJob, "caseInstanceId" | "case
     caseJobKey: optionalString(payload.JobKey) ?? optionalString(payload.jobKey),
     caseExternalId: optionalString(payload.ExternalId) ?? optionalString(payload.externalId),
     caseStage: "Capture Intake"
+  };
+}
+
+function batchCasePatchFromBody(body: unknown): Partial<Pick<
+  InvoiceBatch,
+  "caseInstanceId" | "caseJobKey" | "caseExternalId" | "caseStage" | "caseStatus" | "caseRuntimeMode" | "exceptionCode" | "exceptionMessage"
+>> {
+  const payload = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const runtimeMode = optionalString(payload.caseRuntimeMode);
+  const patch = {
+    caseInstanceId: optionalString(payload.caseInstanceId),
+    caseJobKey: optionalString(payload.caseJobKey),
+    caseExternalId: optionalString(payload.caseExternalId),
+    caseStage: optionalCaseStage(payload.caseStage),
+    caseStatus: optionalCaseStatus(payload.caseStatus),
+    caseRuntimeMode: runtimeMode === "live" || runtimeMode === "fallback" || runtimeMode === "blocked" ? runtimeMode : undefined,
+    exceptionCode: optionalString(payload.exceptionCode) ?? optionalString(payload.errorCode),
+    exceptionMessage: optionalString(payload.exceptionMessage) ?? optionalString(payload.message)
+  };
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<Pick<
+    InvoiceBatch,
+    "caseInstanceId" | "caseJobKey" | "caseExternalId" | "caseStage" | "caseStatus" | "caseRuntimeMode" | "exceptionCode" | "exceptionMessage"
+  >>;
+}
+
+function batchCaseStartPatch(data: unknown, mode: "dry-run" | "uip"): Partial<Pick<
+  InvoiceBatch,
+  "caseInstanceId" | "caseJobKey" | "caseExternalId" | "caseStage" | "caseStatus" | "caseRuntimeMode" | "caseStartedAt"
+>> {
+  const payload = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  return {
+    caseInstanceId: optionalString(payload.CaseInstanceId) ?? optionalString(payload.caseInstanceId) ?? optionalString(payload.ProcessInstanceKey),
+    caseJobKey: optionalString(payload.JobKey) ?? optionalString(payload.jobKey),
+    caseExternalId: optionalString(payload.ExternalId) ?? optionalString(payload.externalId),
+    caseStage: "Capture Intake",
+    caseStatus: mode === "dry-run" ? "fallback" : "active",
+    caseRuntimeMode: mode === "dry-run" ? "fallback" : "live",
+    caseStartedAt: new Date().toISOString()
   };
 }
 
@@ -269,6 +351,64 @@ async function startExtraction(job: IntakeJob, apiBaseUrl: string, trigger: "cap
   return startingJob;
 }
 
+async function createCapturedJob(
+  uploadedFile: Express.Multer.File,
+  qrPayload: string | undefined,
+  apiBaseUrl: string,
+  options: { batchId?: string; batchSequence?: number } = {}
+): Promise<IntakeJob> {
+  const attachment: AttachmentRef = {
+    id: uuid(),
+    name: uploadedFile.originalname,
+    mimeType: uploadedFile.mimetype,
+    size: uploadedFile.size,
+    localPath: uploadedFile.path
+  };
+  const draft = draftFromCapture(attachment, qrPayload);
+  const created = await jobStore.create(draft, {
+    ...options,
+    sourceFileName: uploadedFile.originalname
+  });
+  const dispatched = await dispatchToUiPath(created, uploadedFile);
+  return startExtraction(dispatched, apiBaseUrl, "capture");
+}
+
+async function startMaestroBatchCase(batchId: string) {
+  const details = await jobStore.getBatchDetails(batchId);
+  if (!details) {
+    throw new Error(`Batch ${batchId} was not found.`);
+  }
+
+  const caseResult = await maybeStartBatchCase(details.batch, details.jobs);
+  if (!caseResult) {
+    await jobStore.appendBatchEvent(batchId, {
+      level: "info",
+      message: "Local Case cockpit fallback is active. Enable UIPATH_START_CASE to start a live Maestro Case."
+    });
+    return jobStore.getBatchDetails(batchId);
+  }
+
+  if (caseResult.error) {
+    await jobStore.updateBatchCase(batchId, {
+      caseStage: "Exception Resolution",
+      caseStatus: "blocked",
+      caseRuntimeMode: "blocked",
+      exceptionCode: "maestro_case_start_failed",
+      exceptionMessage: caseResult.error
+    }, {
+      level: "warning",
+      message: `Maestro Case batch start skipped or failed: ${caseResult.error}`
+    });
+    return jobStore.getBatchDetails(batchId);
+  }
+
+  await jobStore.updateBatchCase(batchId, batchCaseStartPatch(caseResult.data, caseResult.mode), {
+    level: "info",
+    message: caseResult.mode === "dry-run" ? "Maestro Case batch start recorded in dry-run mode." : "Maestro Case started for this batch."
+  });
+  return jobStore.getBatchDetails(batchId);
+}
+
 async function runLocalExtraction(job: IntakeJob): Promise<void> {
   try {
     const result = await extractInvoiceDraft(job);
@@ -336,6 +476,231 @@ app.get("/api/jobs/:jobId", asyncHandler(async (request, response) => {
   response.json({ job });
 }));
 
+app.get("/api/batches", asyncHandler(async (_request, response) => {
+  response.json({ batches: await jobStore.listBatchSummaries() });
+}));
+
+app.post("/api/batches", batchUpload, asyncHandler(async (request, response) => {
+  const files = requestFiles(request);
+  if (!files.length) {
+    response.status(400).json({ error: "At least one invoice upload is required in the documents field." });
+    return;
+  }
+
+  const batchName = optionalString(request.body.batchName) ?? optionalString(request.body.name);
+  const batch = await jobStore.createBatch(batchName);
+  const qrPayloads = parseQrPayloads(request.body as Record<string, unknown>);
+  const jobs: IntakeJob[] = [];
+
+  for (const [index, file] of files.entries()) {
+    const job = await createCapturedJob(file, qrPayloadForFile(qrPayloads, file, index), requestBaseUrl(request), {
+      batchId: batch.batchId,
+      batchSequence: index + 1
+    });
+    jobs.push(job);
+  }
+
+  const details = await startMaestroBatchCase(batch.batchId) ?? await jobStore.getBatchDetails(batch.batchId);
+  response.status(201).json({ batch: details?.batch ?? batch, summary: details?.summary, jobs: details?.jobs ?? jobs });
+}));
+
+app.get("/api/batches/:batchId", asyncHandler(async (request, response) => {
+  const batch = await jobStore.getBatchDetails(routeParam(request.params.batchId));
+  if (!batch) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+  response.json(batch);
+}));
+
+app.get("/api/case/batches/:batchId", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batch = await jobStore.getBatchDetails(routeParam(request.params.batchId));
+  if (!batch) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+  response.json(batch);
+}));
+
+app.post("/api/case/batches/:batchId/stage", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batchId = routeParam(request.params.batchId);
+  const current = await jobStore.getBatchDetails(batchId);
+  if (!current) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  const stage = optionalCaseStage(request.body.caseStage) ?? current.batch.caseStage ?? "Capture Intake";
+  await jobStore.updateBatchCase(batchId, {
+    ...batchCasePatchFromBody(request.body),
+    caseStage: stage,
+    caseStatus: optionalCaseStatus(request.body.caseStatus) ?? "active",
+    caseRuntimeMode: "live"
+  }, {
+    level: "info",
+    message: optionalString(request.body.message) ?? `Maestro Case stage changed to ${stage}.`
+  });
+
+  response.json(await jobStore.getBatchDetails(batchId));
+}));
+
+app.post("/api/case/batches/:batchId/task", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batchId = routeParam(request.params.batchId);
+  const current = await jobStore.getBatchDetails(batchId);
+  if (!current) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  const taskName = optionalString(request.body.taskName) ?? "Maestro task";
+  const taskStatus = optionalString(request.body.taskStatus) ?? "updated";
+  const stage = optionalCaseStage(request.body.caseStage) ?? current.batch.caseStage ?? "Capture Intake";
+  await jobStore.updateBatchCase(batchId, {
+    ...batchCasePatchFromBody(request.body),
+    caseStage: stage,
+    caseStatus: optionalCaseStatus(request.body.caseStatus) ?? "active",
+    caseRuntimeMode: "live"
+  }, {
+    level: taskStatus === "failed" ? "error" : "info",
+    message: optionalString(request.body.message) ?? `${taskName} ${taskStatus}.`
+  });
+
+  response.json(await jobStore.getBatchDetails(batchId));
+}));
+
+app.post("/api/case/batches/:batchId/exception", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batchId = routeParam(request.params.batchId);
+  const current = await jobStore.getBatchDetails(batchId);
+  if (!current) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  const errorCode = optionalString(request.body.errorCode) ?? optionalString(request.body.exceptionCode) ?? "case_exception";
+  const message = optionalString(request.body.message) ?? `Maestro Case exception: ${errorCode}`;
+  await jobStore.updateBatchCase(batchId, {
+    ...batchCasePatchFromBody(request.body),
+    caseStage: "Exception Resolution",
+    caseStatus: "exception",
+    caseRuntimeMode: "live",
+    exceptionCode: errorCode,
+    exceptionMessage: message
+  }, {
+    level: "error",
+    message
+  });
+
+  response.json(await jobStore.getBatchDetails(batchId));
+}));
+
+app.post("/api/case/batches/:batchId/close", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batchId = routeParam(request.params.batchId);
+  const current = await jobStore.getBatchDetails(batchId);
+  if (!current) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  await jobStore.updateBatchCase(batchId, {
+    ...batchCasePatchFromBody(request.body),
+    caseStage: "Closed",
+    caseStatus: "closed",
+    caseRuntimeMode: "live",
+    exceptionCode: undefined,
+    exceptionMessage: undefined
+  }, {
+    level: "info",
+    message: optionalString(request.body.message) ?? "Maestro Case closed."
+  });
+
+  response.json(await jobStore.getBatchDetails(batchId));
+}));
+
+app.post("/api/batches/:batchId/apply-mappings", asyncHandler(async (request, response) => {
+  const result = await jobStore.applyMappingRulesToBatch(routeParam(request.params.batchId));
+  response.json({ ...result.batch, appliedCount: result.appliedCount });
+}));
+
+app.post("/api/batches/:batchId/bulk-review", asyncHandler(async (request, response) => {
+  const batchId = routeParam(request.params.batchId);
+  const batch = await jobStore.getBatchDetails(batchId);
+  if (!batch) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  const reviews = Array.isArray(request.body.reviews) ? request.body.reviews : [];
+  const batchJobIds = new Set(batch.jobs.map((job) => job.jobId));
+  for (const item of reviews) {
+    const payload = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const jobId = optionalString(payload.jobId);
+    if (!jobId || !batchJobIds.has(jobId)) continue;
+
+    const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(payload.draft));
+    const validation = reconcileDraft(draft);
+    const current = await jobStore.get(jobId);
+    if (!current) continue;
+    await jobStore.update(jobId, {
+      status: validation.canSubmitToRobot ? "ready_for_qoyod" : "needs_review",
+      fill: validation.canSubmitToRobot ? {
+        method: "chrome_extension",
+        status: "ready",
+        updatedAt: new Date().toISOString()
+      } : current.fill,
+      draft,
+      validation,
+      events: [
+        ...current.events,
+        {
+          at: new Date().toISOString(),
+          level: validation.canSubmitToRobot ? "info" : "warning",
+          message: validation.canSubmitToRobot
+            ? "Batch review marked this invoice ready for Qoyod."
+            : "Batch review saved with blocking checks."
+        }
+      ]
+    });
+  }
+
+  const updated = await jobStore.getBatchDetails(batchId);
+  response.json(updated);
+}));
+
+app.get("/api/mappings", asyncHandler(async (_request, response) => {
+  response.json({ rules: await jobStore.listMappingRules() });
+}));
+
+app.post("/api/mappings", asyncHandler(async (request, response) => {
+  const rule = await jobStore.upsertMappingRule({
+    ruleId: optionalString(request.body.ruleId),
+    active: request.body.active === undefined ? true : request.body.active === true,
+    type: request.body.type === "item" ? "item" : "expense",
+    qoyodId: optionalString(request.body.qoyodId) ?? optionalString(request.body.id) ?? optionalString(request.body.label),
+    label: optionalString(request.body.label),
+    supplierName: optionalString(request.body.supplierName),
+    supplierTaxId: optionalString(request.body.supplierTaxId),
+    matchText: optionalString(request.body.matchText),
+    matchMode: request.body.matchMode === "exact" ? "exact" : "contains",
+    taxRate: typeof request.body.taxRate === "number" || typeof request.body.taxRate === "string" ? Number(request.body.taxRate) : undefined
+  });
+  response.status(201).json({ rule });
+}));
+
+app.delete("/api/mappings/:ruleId", asyncHandler(async (request, response) => {
+  const deleted = await jobStore.deleteMappingRule(routeParam(request.params.ruleId));
+  response.json({ deleted });
+}));
+
 app.post("/api/extraction/jobs/:jobId/start", asyncHandler(async (request, response) => {
   if (!verifyExtractionToken(request, response)) return;
 
@@ -383,7 +748,7 @@ app.post("/api/extraction/jobs/:jobId/result", asyncHandler(async (request, resp
     return;
   }
 
-  const draft = invoiceDraftSchema.parse(request.body.draft);
+  const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
   const provider = String(request.body.provider ?? "external");
   const providerName = ["openai", "deepseek", "external", "mock", "manual"].includes(provider) ? provider as "openai" | "deepseek" | "external" | "mock" | "manual" : "external";
@@ -419,7 +784,7 @@ app.post("/api/extraction/jobs/:jobId/result", asyncHandler(async (request, resp
 app.post("/api/fill/jobs/claim-next", asyncHandler(async (request, response) => {
   if (!verifyFillToken(request, response)) return;
 
-  const job = await jobStore.claimNextForFill();
+  const job = await jobStore.claimNextForFill(optionalString(request.body.batchId));
   response.json({ job: job ?? null });
 }));
 
@@ -562,18 +927,8 @@ app.post("/api/captures", upload.single("document"), asyncHandler(async (request
     return;
   }
 
-  const attachment: AttachmentRef = {
-    id: uuid(),
-    name: request.file.originalname,
-    mimeType: request.file.mimetype,
-    size: request.file.size,
-    localPath: request.file.path
-  };
   const qrPayload = typeof request.body.qrPayload === "string" ? request.body.qrPayload : undefined;
-  const draft = draftFromCapture(attachment, qrPayload);
-  const created = await jobStore.create(draft);
-  const dispatched = await dispatchToUiPath(created, request.file);
-  const job = await startExtraction(dispatched, requestBaseUrl(request), "capture");
+  const job = await createCapturedJob(request.file, qrPayload, requestBaseUrl(request));
 
   response.status(201).json({ jobId: job.jobId, job });
 }));
@@ -591,7 +946,7 @@ app.post("/api/jobs/:jobId/extraction", asyncHandler(async (request, response) =
     return;
   }
 
-  const draft = invoiceDraftSchema.parse(request.body.draft);
+  const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
   const job = await jobStore.update(current.jobId, {
     status: "needs_review",
@@ -619,7 +974,7 @@ app.post("/api/case/jobs/:jobId/extraction", asyncHandler(async (request, respon
     return;
   }
 
-  const draft = invoiceDraftSchema.parse(request.body.draft);
+  const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
   const job = await jobStore.update(current.jobId, {
     ...casePatchFromBody(request.body),
@@ -649,7 +1004,7 @@ app.post("/api/jobs/:jobId/review", asyncHandler(async (request, response) => {
     return;
   }
 
-  const draft = invoiceDraftSchema.parse(request.body.draft);
+  const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
   const reviewedStatus = validation.canSubmitToRobot ? "ready_for_qoyod" : "needs_review";
   const job = await jobStore.update(current.jobId, {
@@ -683,7 +1038,7 @@ app.post("/api/case/jobs/:jobId/review", asyncHandler(async (request, response) 
     return;
   }
 
-  const draft = invoiceDraftSchema.parse(request.body.draft);
+  const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
   const reviewDecision = String(request.body.reviewDecision ?? "save").toLowerCase();
   const status: IntakeJob["status"] = ["reject", "rejected"].includes(reviewDecision)

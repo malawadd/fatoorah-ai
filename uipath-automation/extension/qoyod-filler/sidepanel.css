@@ -92,7 +92,8 @@ label {
   gap: 5px;
 }
 
-input {
+input,
+select {
   border: 1px solid #cfd8d4;
   border-radius: 6px;
   box-sizing: border-box;
