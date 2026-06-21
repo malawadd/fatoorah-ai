@@ -3,9 +3,13 @@
 ## T01: Root Case
 - name: QoyodInvoiceIntakeCase
 - identifier-prefix: QII
-- trigger: manual/API start
+- trigger: manual/API start, one case per uploaded invoice batch
 
 ## T02: Input Variables
+- batchId: string
+- batchName: string
+- invoiceCount: number
+- jobIds: jsonSchema array<string>
 - jobId: string
 - bucketKey: string
 - bucketPath: string
@@ -27,34 +31,40 @@
 - task: Register Capture Payload
 - type: api-workflow
 - resource: <UNRESOLVED: publish API workflow or replace with supported Case task>
+- callback: `POST /api/case/batches/{batchId}/stage`
 
 ## T05: Stage Extraction And Reconciliation
-- task: Extract Invoice Draft
+- task: Extract Batch Invoice Drafts
 - type: api-workflow
-- resource: <UNRESOLVED: Case runtime unavailable; backend starts /api/extraction/jobs/{jobId}/start until enabled>
-- task: Validate QR OCR Totals And Duplicates
+- resource: <UNRESOLVED: Case runtime unavailable; backend starts `/api/extraction/jobs/{jobId}/start` for each uploaded job until enabled>
+- task: Validate QR OCR Totals Duplicates And Batch Exceptions
 - type: agent
 - resource: <UNRESOLVED: validation agent/process not published>
+- callback: `POST /api/case/batches/{batchId}/task`
 
 ## T06: Stage Finance Review And Mapping
-- task: Review Correct And Map Invoice
+- task: Review Correct And Map Batch
 - type: action
 - resource: <UNRESOLVED: publish QoyodInvoiceReviewAction and resolve action app>
+- callback: `POST /api/case/batches/{batchId}/stage`
 
 ## T07: Stage Qoyod Drafting
 - task: Wait For Qoyod Extension Draft Save
 - type: api-workflow
 - resource: <UNRESOLVED: Case runtime unavailable; backend /api/fill status drives the extension handoff until enabled>
+- callback: `POST /api/case/batches/{batchId}/task`
 
 ## T08: Stage Exception Resolution
-- task: Resolve Invoice Intake Exception
+- task: Resolve Batch Invoice Intake Exception
 - type: action
 - resource: <UNRESOLVED: publish exception action app or reuse review app>
+- callback: `POST /api/case/batches/{batchId}/exception`
 
 ## T09: Stage Closed
 - task: Record Case Closure
 - type: api-workflow
 - resource: <UNRESOLVED: publish API workflow or replace with supported Case task>
+- callback: `POST /api/case/batches/{batchId}/close`
 
 ## T10: Routing Conditions
 - Capture Intake enters on case-entered.

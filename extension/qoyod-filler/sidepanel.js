@@ -2,6 +2,7 @@ const DEFAULT_CONFIG = {
   apiBaseUrl: "http://localhost:8787",
   fillToken: "",
   qoyodBaseUrl: "https://www.qoyod.com",
+  selectedBatchId: "",
   currentJob: null
 };
 
@@ -12,6 +13,8 @@ const fields = {
   qoyodBaseUrl: document.getElementById("qoyodBaseUrl"),
   saveConfig: document.getElementById("saveConfig"),
   calibrate: document.getElementById("calibrate"),
+  refreshBatches: document.getElementById("refreshBatches"),
+  batchScope: document.getElementById("batchScope"),
   claim: document.getElementById("claim"),
   fill: document.getElementById("fill"),
   saveDraft: document.getElementById("saveDraft"),
@@ -32,6 +35,7 @@ async function init() {
   fields.apiBaseUrl.value = state.apiBaseUrl;
   fields.fillToken.value = state.fillToken;
   fields.qoyodBaseUrl.value = state.qoyodBaseUrl;
+  await loadBatches();
   renderJob(state.currentJob);
   bind();
   note("Side panel ready.");
@@ -39,6 +43,11 @@ async function init() {
 
 function bind() {
   fields.saveConfig.addEventListener("click", saveConfig);
+  fields.refreshBatches.addEventListener("click", loadBatches);
+  fields.batchScope.addEventListener("change", async () => {
+    state.selectedBatchId = fields.batchScope.value;
+    await chrome.storage.local.set({ selectedBatchId: state.selectedBatchId });
+  });
   fields.calibrate.addEventListener("click", calibrate);
   fields.claim.addEventListener("click", claimNext);
   fields.fill.addEventListener("click", fillCurrentPage);
@@ -55,17 +64,38 @@ async function saveConfig() {
     ...state,
     apiBaseUrl: fields.apiBaseUrl.value.trim().replace(/\/$/, "") || DEFAULT_CONFIG.apiBaseUrl,
     fillToken: fields.fillToken.value,
-    qoyodBaseUrl: fields.qoyodBaseUrl.value.trim().replace(/\/$/, "") || DEFAULT_CONFIG.qoyodBaseUrl
+    qoyodBaseUrl: fields.qoyodBaseUrl.value.trim().replace(/\/$/, "") || DEFAULT_CONFIG.qoyodBaseUrl,
+    selectedBatchId: fields.batchScope.value
   };
   await chrome.storage.local.set(state);
   note("Configuration saved.");
+}
+
+async function loadBatches() {
+  try {
+    const body = await api("/api/batches");
+    const current = state.selectedBatchId;
+    fields.batchScope.innerHTML = '<option value="">Any ready invoice</option>';
+    for (const batch of body.batches || []) {
+      const option = document.createElement("option");
+      option.value = batch.batchId;
+      option.textContent = `${batch.name} (${batch.totalJobs})`;
+      fields.batchScope.appendChild(option);
+    }
+    fields.batchScope.value = current || "";
+  } catch (error) {
+    note(`Batch list unavailable: ${error.message}`);
+  }
 }
 
 async function claimNext() {
   await saveConfig();
   setBusy(true, "Claiming");
   try {
-    const body = await api("/api/fill/jobs/claim-next", { method: "POST" });
+    const body = await api("/api/fill/jobs/claim-next", {
+      method: "POST",
+      body: JSON.stringify(state.selectedBatchId ? { batchId: state.selectedBatchId } : {})
+    });
     if (!body.job) {
       state.currentJob = null;
       await chrome.storage.local.set({ currentJob: null });

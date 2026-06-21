@@ -18,6 +18,7 @@ In the side panel:
 - Set API base URL, usually `http://localhost:8787`.
 - Set the fill token if the backend uses `FILLER_API_TOKEN`.
 - Set Qoyod base URL, usually `https://www.qoyod.com`.
+- Use Batch scope to claim from one reviewed batch only, or leave it as Any ready invoice.
 - Click Save.
 
 ## Calibrate
@@ -34,7 +35,7 @@ Selectors are stored in `chrome.storage.local`.
 
 ## Fill Flow
 
-- Claim next reviewed invoice calls `POST /api/fill/jobs/claim-next`.
+- Claim next reviewed invoice calls `POST /api/fill/jobs/claim-next`, with the selected batch ID when Batch scope is set.
 - Fill current Qoyod page writes the reviewed invoice draft into the active Qoyod tab.
 - Save draft only asks for confirmation before clicking the calibrated save-draft button.
 - Release current job returns the job to `ready_for_qoyod`.
