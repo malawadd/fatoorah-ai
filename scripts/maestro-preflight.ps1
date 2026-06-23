@@ -98,14 +98,36 @@ foreach ($name in $requiredEnv) {
 }
 
 $startCase = (EnvValue $dotEnv "UIPATH_START_CASE") -eq "true"
+$folderPath = EnvValue $dotEnv "UIPATH_FOLDER_PATH"
 $caseProcessKey = EnvValue $dotEnv "UIPATH_CASE_PROCESS_KEY"
 $caseFolderKey = EnvValue $dotEnv "UIPATH_CASE_FOLDER_KEY"
+$caseReleaseKey = EnvValue $dotEnv "UIPATH_CASE_RELEASE_KEY"
+$caseValidateInputs = EnvValue $dotEnv "UIPATH_CASE_VALIDATE_INPUTS"
 Write-Check "env UIPATH_CASE_PROCESS_KEY" ((-not $startCase) -or [bool]$caseProcessKey) $(if ($caseProcessKey) { "set" } elseif ($startCase) { "missing and live Case start is enabled" } else { "not set; live Case start disabled" })
 Write-Check "env UIPATH_CASE_FOLDER_KEY" ((-not $startCase) -or [bool]$caseFolderKey) $(if ($caseFolderKey) { "set" } elseif ($startCase) { "missing and live Case start is enabled" } else { "not set; live Case start disabled" })
-if ($caseProcessKey) {
-  $caseProcess = Invoke-UipJson @("or", "processes", "get", $caseProcessKey, "--output", "json")
-  $caseProcessOk = $caseProcess.ExitCode -eq 0 -and $caseProcess.Json -and $caseProcess.Text -match "CaseManagement"
-  Write-Check "configured Case process key" $caseProcessOk $(if ($caseProcessOk) { "CaseManagement process found" } else { $caseProcess.Text })
+Write-Check "env UIPATH_CASE_VALIDATE_INPUTS" ($caseValidateInputs -ne "true") $(if ($caseValidateInputs -eq "true") { "must be false in staging because CLI --validate rejects Case package keys" } else { "disabled or false" })
+if ($caseProcessKey -and $folderPath) {
+  $caseProcesses = Invoke-UipJson @("or", "processes", "list", "--folder-path", $folderPath, "--output", "json")
+  $processKeyMatches = @()
+  $uuidKeyMatches = @()
+  if ($caseProcesses.ExitCode -eq 0 -and $caseProcesses.Json -and $caseProcesses.Json.Data) {
+    $processKeyMatches = @($caseProcesses.Json.Data | Where-Object { $_.ProcessKey -eq $caseProcessKey })
+    $uuidKeyMatches = @($caseProcesses.Json.Data | Where-Object { $_.Key -eq $caseProcessKey })
+  }
+
+  if ($processKeyMatches.Count -gt 0) {
+    $matched = $processKeyMatches[0]
+    $releaseDetail = if ($caseReleaseKey) { "release $caseReleaseKey" } else { "release key will auto-resolve to $($matched.Key)" }
+    Write-Check "configured Case run key" $true ("found {0} v{1}; {2}" -f $matched.ProcessKey, $matched.ProcessVersion, $releaseDetail)
+    if ($caseReleaseKey) {
+      Write-Check "configured Case release key" ($matched.Key -eq $caseReleaseKey) $(if ($matched.Key -eq $caseReleaseKey) { "matches process Key UUID" } else { "expected $($matched.Key)" })
+    }
+  } elseif ($uuidKeyMatches.Count -gt 0) {
+    $matched = $uuidKeyMatches[0]
+    Write-Check "configured Case run key" $false ("configured value is the process UUID Key; use ProcessKey '{0}' and UIPATH_CASE_RELEASE_KEY '{1}'" -f $matched.ProcessKey, $matched.Key)
+  } else {
+    Write-Check "configured Case run key" $false $(if ($caseProcesses.Text) { $caseProcesses.Text } else { "not found in folder $folderPath" })
+  }
 }
 
 $publicUrl = EnvValue $dotEnv "PUBLIC_API_BASE_URL"

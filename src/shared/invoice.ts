@@ -150,7 +150,8 @@ export const validationResultSchema = z.object({
 export const jobEventSchema = z.object({
   at: z.string(),
   level: z.enum(["info", "warning", "error"]),
-  message: z.string()
+  message: z.string(),
+  details: z.unknown().optional()
 });
 
 export const batchOptionsSchema = z.object({
