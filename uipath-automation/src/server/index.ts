@@ -11,7 +11,7 @@ import { decodeZatcaTlv } from "../shared/zatca";
 import { buildExtractionJobInput, extractInvoiceDraft, startExternalExtraction } from "./extraction";
 import { reconcileDraft } from "./reconciliation";
 import { jobStore, UPLOAD_DIR } from "./store";
-import { createInvoiceQueueItem, maybeStartBatchCase, maybeStartInvoiceCase, uploadAttachmentToBucket } from "./uipathCli";
+import { createInvoiceQueueItem, maybeStartBatchCase, maybeStartInvoiceCase, uploadAttachmentToBucket, type UiPathCommandResult } from "./uipathCli";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -180,6 +180,17 @@ function optionalCaseStatus(value: unknown): CaseStatus | undefined {
   return caseStatuses.includes(value as CaseStatus) ? value as CaseStatus : undefined;
 }
 
+function commandDetails(result: UiPathCommandResult, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...extra,
+    mode: result.mode,
+    command: result.command,
+    data: result.data,
+    error: result.error,
+    message: result.message
+  };
+}
+
 function casePatchFromBody(body: unknown): Pick<IntakeJob, "caseInstanceId" | "caseJobKey" | "caseExternalId" | "caseStage"> {
   const payload = body && typeof body === "object" ? body as Record<string, unknown> : {};
   return {
@@ -238,14 +249,23 @@ function batchCaseStartPatch(data: unknown, mode: "dry-run" | "uip"): Partial<Pi
   };
 }
 
-async function dispatchToUiPath(job: IntakeJob, uploadedFile: Express.Multer.File): Promise<IntakeJob> {
+async function dispatchToUiPath(
+  job: IntakeJob,
+  uploadedFile: Express.Multer.File,
+  options: { startInvoiceCase?: boolean } = {}
+): Promise<IntakeJob> {
+  const startInvoiceCase = options.startInvoiceCase ?? true;
   const uploadResult = await uploadAttachmentToBucket(job, uploadedFile.path, uploadedFile.mimetype);
   let workingJob = job;
 
   if (uploadResult.error) {
     workingJob = await jobStore.appendEvent(job.jobId, {
       level: "warning",
-      message: `UiPath bucket upload skipped or failed: ${uploadResult.error}`
+      message: `UiPath bucket upload skipped or failed: ${uploadResult.error}`,
+      details: commandDetails(uploadResult, {
+        operation: "or.bucket-files.upload",
+        bucketPath: uploadResult.bucketPath
+      })
     });
   } else {
     const attachmentRefs = workingJob.draft.attachmentRefs.map((attachment) =>
@@ -260,7 +280,11 @@ async function dispatchToUiPath(job: IntakeJob, uploadedFile: Express.Multer.Fil
         {
           at: new Date().toISOString(),
           level: "info",
-          message: uploadResult.mode === "dry-run" ? "UiPath bucket upload recorded in dry-run mode." : "Attachment uploaded to Orchestrator bucket."
+          message: uploadResult.mode === "dry-run" ? "UiPath bucket upload recorded in dry-run mode." : "Attachment uploaded to Orchestrator bucket.",
+          details: commandDetails(uploadResult, {
+            operation: "or.bucket-files.upload",
+            bucketPath: uploadResult.bucketPath
+          })
         }
       ]
     });
@@ -270,7 +294,10 @@ async function dispatchToUiPath(job: IntakeJob, uploadedFile: Express.Multer.Fil
   if (queueResult.error) {
     workingJob = await jobStore.appendEvent(workingJob.jobId, {
       level: "warning",
-      message: `UiPath queue item skipped or failed: ${queueResult.error}`
+      message: `UiPath queue item skipped or failed: ${queueResult.error}`,
+      details: commandDetails(queueResult, {
+        operation: "or.queue-items.add"
+      })
     });
   } else {
     const queueData = queueResult.data as { UniqueKey?: string; uniqueKey?: string } | undefined;
@@ -283,30 +310,44 @@ async function dispatchToUiPath(job: IntakeJob, uploadedFile: Express.Multer.Fil
         {
           at: new Date().toISOString(),
           level: "info",
-          message: queueResult.mode === "dry-run" ? "InvoiceIntake queue item recorded in dry-run mode." : "InvoiceIntake queue item created."
+          message: queueResult.mode === "dry-run" ? "InvoiceIntake queue item recorded in dry-run mode." : "InvoiceIntake queue item created.",
+          details: commandDetails(queueResult, {
+            operation: "or.queue-items.add",
+            queueItemKey: queueKey
+          })
         }
       ]
     });
   }
 
-  const caseResult = await maybeStartInvoiceCase(workingJob);
-  if (caseResult?.error) {
-    workingJob = await jobStore.appendEvent(workingJob.jobId, {
-      level: "warning",
-      message: `Maestro Case start skipped or failed: ${caseResult.error}`
-    });
-  } else if (caseResult) {
-    workingJob = await jobStore.update(workingJob.jobId, {
-      ...caseStartPatch(caseResult.data),
-      events: [
-        ...workingJob.events,
-        {
-          at: new Date().toISOString(),
-          level: "info",
-          message: caseResult.mode === "dry-run" ? "Maestro Case start recorded in dry-run mode." : "Maestro Case started."
-        }
-      ]
-    });
+  if (startInvoiceCase) {
+    const caseResult = await maybeStartInvoiceCase(workingJob);
+    if (caseResult?.error) {
+      workingJob = await jobStore.appendEvent(workingJob.jobId, {
+        level: "warning",
+        message: `Maestro Case start skipped or failed: ${caseResult.error}`,
+        details: commandDetails(caseResult, {
+          operation: "maestro.case.process.run",
+          scope: "invoice"
+        })
+      });
+    } else if (caseResult) {
+      workingJob = await jobStore.update(workingJob.jobId, {
+        ...caseStartPatch(caseResult.data),
+        events: [
+          ...workingJob.events,
+          {
+            at: new Date().toISOString(),
+            level: "info",
+            message: caseResult.mode === "dry-run" ? "Maestro Case start recorded in dry-run mode." : "Maestro Case started.",
+            details: commandDetails(caseResult, {
+              operation: "maestro.case.process.run",
+              scope: "invoice"
+            })
+          }
+        ]
+      });
+    }
   }
 
   return workingJob;
@@ -369,7 +410,9 @@ async function createCapturedJob(
     ...options,
     sourceFileName: uploadedFile.originalname
   });
-  const dispatched = await dispatchToUiPath(created, uploadedFile);
+  const dispatched = await dispatchToUiPath(created, uploadedFile, {
+    startInvoiceCase: !options.batchId
+  });
   return startExtraction(dispatched, apiBaseUrl, "capture");
 }
 
@@ -383,7 +426,12 @@ async function startMaestroBatchCase(batchId: string) {
   if (!caseResult) {
     await jobStore.appendBatchEvent(batchId, {
       level: "info",
-      message: "Local Case cockpit fallback is active. Enable UIPATH_START_CASE to start a live Maestro Case."
+      message: "Local Case cockpit fallback is active. Enable UIPATH_START_CASE to start a live Maestro Case.",
+      details: {
+        operation: "maestro.case.process.run",
+        scope: "batch",
+        mode: "fallback"
+      }
     });
     return jobStore.getBatchDetails(batchId);
   }
@@ -397,14 +445,22 @@ async function startMaestroBatchCase(batchId: string) {
       exceptionMessage: caseResult.error
     }, {
       level: "warning",
-      message: `Maestro Case batch start skipped or failed: ${caseResult.error}`
+      message: `Maestro Case batch start skipped or failed: ${caseResult.error}`,
+      details: commandDetails(caseResult, {
+        operation: "maestro.case.process.run",
+        scope: "batch"
+      })
     });
     return jobStore.getBatchDetails(batchId);
   }
 
   await jobStore.updateBatchCase(batchId, batchCaseStartPatch(caseResult.data, caseResult.mode), {
     level: "info",
-    message: caseResult.mode === "dry-run" ? "Maestro Case batch start recorded in dry-run mode." : "Maestro Case started for this batch."
+    message: caseResult.mode === "dry-run" ? "Maestro Case batch start recorded in dry-run mode." : "Maestro Case started for this batch.",
+    details: commandDetails(caseResult, {
+      operation: "maestro.case.process.run",
+      scope: "batch"
+    })
   });
   return jobStore.getBatchDetails(batchId);
 }

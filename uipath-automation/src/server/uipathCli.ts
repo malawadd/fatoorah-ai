@@ -21,11 +21,14 @@ type UiPathConfig = {
   queueName: string;
   caseProcessKey: string;
   caseFolderKey: string;
+  caseReleaseKey: string;
   caseFeedId: string;
+  caseValidateInputs: boolean;
   startCase: boolean;
 };
 
 const RESERVED_BUCKET_PATH_CHARS = /[&+%?]/g;
+const ORCHESTRATOR_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WINDOWS_UIPATH_CLI_CANDIDATES = [
   path.join(path.dirname(process.execPath), "node_modules", "@uipath", "cli", "dist", "index.js"),
   process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@uipath", "cli", "dist", "index.js") : ""
@@ -140,7 +143,9 @@ function readConfig(): UiPathConfig {
     queueName: process.env.UIPATH_QUEUE_NAME ?? "InvoiceIntake",
     caseProcessKey: process.env.UIPATH_CASE_PROCESS_KEY ?? "",
     caseFolderKey: process.env.UIPATH_CASE_FOLDER_KEY ?? "",
+    caseReleaseKey: process.env.UIPATH_CASE_RELEASE_KEY ?? "",
     caseFeedId: process.env.UIPATH_CASE_FEED_ID ?? "",
+    caseValidateInputs: process.env.UIPATH_CASE_VALIDATE_INPUTS === "true",
     startCase: process.env.UIPATH_START_CASE === "true"
   };
 }
@@ -185,6 +190,127 @@ async function runUip(args: string[], config: UiPathConfig): Promise<UiPathComma
 
 function requireFolder(config: UiPathConfig): string | undefined {
   return config.folderPath ? undefined : "UIPATH_FOLDER_PATH is required when UIPATH_ENABLED=true.";
+}
+
+export function processKeyFromProcessData(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const process = data as { ProcessKey?: unknown };
+  return typeof process.ProcessKey === "string" && process.ProcessKey.trim().length > 0
+    ? process.ProcessKey.trim()
+    : undefined;
+}
+
+type CaseRunTarget = {
+  processKey: string;
+  releaseKey?: string;
+  error?: string;
+};
+
+function processVersionFromProcessData(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const process = data as { ProcessVersion?: unknown };
+  return typeof process.ProcessVersion === "string" && process.ProcessVersion.trim().length > 0
+    ? process.ProcessVersion.trim()
+    : undefined;
+}
+
+function releaseKeyFromProcessData(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const process = data as { Key?: unknown };
+  return typeof process.Key === "string" && process.Key.trim().length > 0
+    ? process.Key.trim()
+    : undefined;
+}
+
+function versionedProcessKey(processKey: string, processVersion?: string): string {
+  return processVersion && !processKey.includes(":") ? `${processKey}:${processVersion}` : processKey;
+}
+
+function findProcessListMatch(data: unknown, configuredKey: string): unknown | undefined {
+  const rows = data && typeof data === "object" && Array.isArray((data as { Data?: unknown }).Data)
+    ? (data as { Data: unknown[] }).Data
+    : Array.isArray(data)
+      ? data
+      : [];
+
+  return rows.find((row) => {
+    const processKey = processKeyFromProcessData(row);
+    const processVersion = processVersionFromProcessData(row);
+    const releaseKey = releaseKeyFromProcessData(row);
+    return configuredKey === processKey ||
+      configuredKey === versionedProcessKey(processKey ?? "", processVersion) ||
+      configuredKey.toLowerCase() === releaseKey?.toLowerCase();
+  });
+}
+
+async function resolveCaseRunTarget(config: UiPathConfig): Promise<CaseRunTarget> {
+  if (ORCHESTRATOR_UUID_PATTERN.test(config.caseProcessKey)) {
+    const lookup = await runUip(["or", "processes", "get", config.caseProcessKey, "--output", "json"], config);
+    if (lookup.error) {
+      return {
+        processKey: config.caseProcessKey,
+        releaseKey: config.caseReleaseKey,
+        error: `UIPATH_CASE_PROCESS_KEY is an Orchestrator release UUID, but its Maestro ProcessKey could not be resolved: ${lookup.error}`
+      };
+    }
+
+    const processKey = processKeyFromProcessData(lookup.data);
+    if (!processKey) {
+      return {
+        processKey: config.caseProcessKey,
+        releaseKey: config.caseReleaseKey,
+        error: "UIPATH_CASE_PROCESS_KEY must be the Maestro ProcessKey string, or a resolvable Orchestrator release UUID."
+      };
+    }
+
+    return {
+      processKey,
+      releaseKey: config.caseReleaseKey || releaseKeyFromProcessData(lookup.data) || config.caseProcessKey
+    };
+  }
+
+  if (config.caseReleaseKey || !config.folderPath) {
+    return { processKey: config.caseProcessKey, releaseKey: config.caseReleaseKey || undefined };
+  }
+
+  const list = await runUip(["or", "processes", "list", "--folder-path", config.folderPath, "--output", "json"], config);
+  if (list.error) {
+    return { processKey: config.caseProcessKey, error: `Could not resolve UIPATH_CASE_RELEASE_KEY from folder processes: ${list.error}` };
+  }
+
+  const match = findProcessListMatch(list.data, config.caseProcessKey);
+  return {
+    processKey: config.caseProcessKey,
+    releaseKey: match ? releaseKeyFromProcessData(match) : undefined
+  };
+}
+
+async function resolveCaseProcessRunKey(config: UiPathConfig): Promise<CaseRunTarget> {
+  if (!config.enabled) {
+    return {
+      processKey: config.caseProcessKey || "<case-process-key>",
+      releaseKey: config.caseReleaseKey || undefined
+    };
+  }
+
+  const target = await resolveCaseRunTarget(config);
+  if (!target.releaseKey) {
+    return {
+      ...target,
+      error: "UIPATH_CASE_RELEASE_KEY is required for live Maestro Case start. Use 'uip or processes list --folder-path <folder>' and copy the process Key UUID."
+    };
+  }
+
+  return target;
 }
 
 export async function uploadAttachmentToBucket(job: IntakeJob, localPath: string, mimeType: string): Promise<UiPathCommandResult & { bucketPath?: string }> {
@@ -281,6 +407,11 @@ export async function maybeStartInvoiceCase(job: IntakeJob): Promise<UiPathComma
   }
 
   const firstAttachment = job.draft.attachmentRefs[0];
+  const caseProcess = await resolveCaseProcessRunKey(config);
+  if (caseProcess.error) {
+    return { mode: "uip", command: [], error: caseProcess.error };
+  }
+
   const inputs = {
     jobId: job.jobId,
     batchId: job.batchId ?? "",
@@ -296,15 +427,22 @@ export async function maybeStartInvoiceCase(job: IntakeJob): Promise<UiPathComma
     "case",
     "process",
     "run",
-    config.caseProcessKey || "<case-process-key>",
+    caseProcess.processKey,
     config.caseFolderKey || "<folder-key>",
     "--inputs",
-    JSON.stringify(inputs),
-    "--validate"
+    JSON.stringify(inputs)
   ];
+
+  if (caseProcess.releaseKey) {
+    args.push("--release-key", caseProcess.releaseKey);
+  }
 
   if (config.caseFeedId) {
     args.push("--feed-id", config.caseFeedId);
+  }
+
+  if (config.caseValidateInputs) {
+    args.push("--validate");
   }
 
   args.push("--output", "json");
@@ -348,21 +486,32 @@ export async function maybeStartBatchCase(batch: InvoiceBatch, jobs: IntakeJob[]
     }),
     qrTlvByJob: Object.fromEntries(jobs.map((job) => [job.jobId, job.draft.qrTlv ?? null]))
   };
+  const caseProcess = await resolveCaseProcessRunKey(config);
+  if (caseProcess.error) {
+    return { mode: "uip", command: [], error: caseProcess.error };
+  }
 
   const args = [
     "maestro",
     "case",
     "process",
     "run",
-    config.caseProcessKey || "<case-process-key>",
+    caseProcess.processKey,
     config.caseFolderKey || "<folder-key>",
     "--inputs",
-    JSON.stringify(inputs),
-    "--validate"
+    JSON.stringify(inputs)
   ];
+
+  if (caseProcess.releaseKey) {
+    args.push("--release-key", caseProcess.releaseKey);
+  }
 
   if (config.caseFeedId) {
     args.push("--feed-id", config.caseFeedId);
+  }
+
+  if (config.caseValidateInputs) {
+    args.push("--validate");
   }
 
   args.push("--output", "json");

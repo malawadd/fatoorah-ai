@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseUipOutput } from "./uipathCli";
+import { parseUipOutput, processKeyFromProcessData } from "./uipathCli";
 
 describe("parseUipOutput", () => {
   it("unwraps successful UiPath JSON envelopes", () => {
@@ -44,5 +44,21 @@ describe("parseUipOutput", () => {
     );
 
     expect(result.error).toBe("No Studio licence is available for the current user.");
+  });
+});
+
+describe("processKeyFromProcessData", () => {
+  it("reads the Maestro run key from Orchestrator process data", () => {
+    expect(processKeyFromProcessData({
+      Key: "6284c16d-0832-4f62-b730-e27f9cecca52",
+      ProcessKey: "QoyodInvoiceIntakeCase.case.Case",
+      ProcessType: "CaseManagement"
+    })).toBe("QoyodInvoiceIntakeCase.case.Case");
+  });
+
+  it("does not treat the Orchestrator UUID Key as the Maestro run key", () => {
+    expect(processKeyFromProcessData({
+      Key: "6284c16d-0832-4f62-b730-e27f9cecca52"
+    })).toBeUndefined();
   });
 });

@@ -1,7 +1,10 @@
 import {
+  Activity,
   AlertTriangle,
   Camera,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   FileText,
   FolderOpen,
   Layers3,
@@ -97,13 +100,60 @@ function mergeBatchJob(batch: BatchDetails | null, updated: IntakeJob): BatchDet
   };
 }
 
+function formatTimestamp(value: string | undefined): string {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function compactJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item === undefined ? undefined : item, 2);
+}
+
+function maestroTimeline(batch: BatchDetails): Array<{ at: string; level: string; scope: string; message: string; details?: unknown }> {
+  const batchEvents = batch.batch.events.map((event) => ({
+    at: event.at,
+    level: event.level,
+    scope: "Batch",
+    message: event.message,
+    details: event.details
+  }));
+  const jobEvents = batch.jobs.flatMap((job) => job.events.map((event) => ({
+    at: event.at,
+    level: event.level,
+    scope: `Invoice ${job.batchSequence ?? job.jobId.slice(0, 8)}`,
+    message: event.message,
+    details: event.details
+  })));
+
+  return [...batchEvents, ...jobEvents].sort((left, right) => left.at.localeCompare(right.at));
+}
+
 function CaseCockpit({ batch }: { batch: BatchDetails }) {
+  const [devLogOpen, setDevLogOpen] = useState(false);
   const currentStage: CaseStage = batch.batch.caseStage ?? batch.summary.caseStage ?? "Capture Intake";
   const currentIndex = Math.max(0, caseStages.indexOf(currentStage));
   const runtime = batch.batch.caseRuntimeMode ?? batch.summary.caseRuntimeMode ?? "fallback";
   const status = batch.batch.caseStatus ?? batch.summary.caseStatus ?? "fallback";
   const identifier = batch.batch.caseInstanceId ?? batch.summary.caseInstanceId ?? batch.batch.caseExternalId ?? batch.summary.caseExternalId;
   const runtimeLabel = runtime === "live" ? "Live Maestro" : runtime === "blocked" ? "Maestro blocked" : "Local cockpit fallback";
+  const timeline = maestroTimeline(batch);
+  const caseSnapshot = {
+    batchId: batch.batch.batchId,
+    batchName: batch.batch.name,
+    batchStatus: batch.batch.status,
+    caseRuntimeMode: runtime,
+    caseStatus: status,
+    caseStage: currentStage,
+    caseInstanceId: batch.batch.caseInstanceId,
+    caseJobKey: batch.batch.caseJobKey,
+    caseExternalId: batch.batch.caseExternalId,
+    caseStartedAt: batch.batch.caseStartedAt,
+    caseUpdatedAt: batch.batch.caseUpdatedAt,
+    exceptionCode: batch.batch.exceptionCode ?? batch.summary.exceptionCode,
+    exceptionMessage: batch.batch.exceptionMessage ?? batch.summary.exceptionMessage,
+    counts: batch.summary.counts
+  };
 
   return (
     <div className={`case-cockpit case-${status}`}>
@@ -140,6 +190,126 @@ function CaseCockpit({ batch }: { batch: BatchDetails }) {
           {(batch.batch.exceptionMessage || batch.summary.exceptionMessage) && <small>{batch.batch.exceptionMessage ?? batch.summary.exceptionMessage}</small>}
         </div>
       )}
+
+      <div className="case-dev-log">
+        <button
+          type="button"
+          className="case-dev-log-toggle"
+          aria-expanded={devLogOpen}
+          onClick={() => setDevLogOpen((open) => !open)}
+        >
+          <span>
+            <Activity size={16} />
+            Maestro dev log
+          </span>
+          <small>{timeline.length} events · {runtimeLabel}</small>
+          {devLogOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+
+        {devLogOpen && (
+          <div className="case-dev-log-body">
+            <div className="case-debug-grid">
+              <div>
+                <span>Stage</span>
+                <strong>{currentStage}</strong>
+              </div>
+              <div>
+                <span>Runtime</span>
+                <strong>{runtimeLabel}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{status}</strong>
+              </div>
+              <div>
+                <span>Case job</span>
+                <code>{batch.batch.caseJobKey ?? "-"}</code>
+              </div>
+              <div>
+                <span>External id</span>
+                <code>{batch.batch.caseExternalId ?? "-"}</code>
+              </div>
+              <div>
+                <span>Started</span>
+                <code>{formatTimestamp(batch.batch.caseStartedAt)}</code>
+              </div>
+            </div>
+
+            <div className="case-log-section">
+              <h3>Timeline</h3>
+              <div className="case-log-timeline">
+                {timeline.length === 0 ? (
+                  <div className="case-log-empty">No events recorded yet.</div>
+                ) : timeline.map((event, index) => (
+                  <div className={`case-log-entry log-${event.level}`} key={`${event.at}-${event.scope}-${index}`}>
+                    <time>{formatTimestamp(event.at)}</time>
+                    <span>{event.scope}</span>
+                    <div>
+                      <p>{event.message}</p>
+                      {event.details !== undefined && (
+                        <details className="case-log-details">
+                          <summary>Details</summary>
+                          <pre>{compactJson(event.details)}</pre>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="case-log-section">
+              <h3>Invoice Signals</h3>
+              <div className="case-job-log-list">
+                {batch.jobs.map((job) => (
+                  <div className="case-job-log" key={job.jobId}>
+                    <div>
+                      <strong>{job.batchSequence ?? "-"} · {job.draft.supplierName || job.sourceFileName || job.jobId.slice(0, 8)}</strong>
+                      <small>{job.status} · updated {formatTimestamp(job.updatedAt)}</small>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Job</dt>
+                        <dd>{job.jobId}</dd>
+                      </div>
+                      <div>
+                        <dt>Queue</dt>
+                        <dd>{job.queueItemKey ?? "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Case job</dt>
+                        <dd>{job.caseJobKey ?? "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Bucket</dt>
+                        <dd>{job.draft.attachmentRefs[0]?.bucketPath ?? "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Extraction</dt>
+                        <dd>{job.extraction ? `${job.extraction.provider}${job.extraction.model ? ` · ${job.extraction.model}` : ""}` : "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Blocking</dt>
+                        <dd>{job.validation?.blocking.length ? job.validation.blocking.join(" | ") : "-"}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="case-log-section">
+              <h3>Raw Case Snapshot</h3>
+              <pre>{compactJson(caseSnapshot)}</pre>
+            </div>
+
+            <div className="case-log-section">
+              <h3>Raw Batch Details</h3>
+              <pre>{compactJson(batch)}</pre>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

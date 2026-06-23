@@ -116,7 +116,7 @@ button {
   display: grid;
   grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
   gap: 18px;
-  width: min(1440px, 100%);
+  width: min(1840px, 100%);
   margin: 0 auto;
   padding: 18px clamp(12px, 3vw, 28px) 32px;
 }
@@ -387,6 +387,7 @@ button:disabled {
 .batch-panel {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .case-cockpit {
@@ -466,14 +467,212 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   color: var(--danger);
   font-size: 0.86rem;
 }
 
 .case-exception small {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.case-dev-log {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.case-dev-log-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #26312e;
+  padding: 9px 12px;
+  text-align: left;
+}
+
+.case-dev-log-toggle span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.case-dev-log-toggle small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.case-dev-log-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-height: min(68vh, 760px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.case-debug-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.case-debug-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafcfb;
+  padding: 8px;
+}
+
+.case-debug-grid span,
+.case-job-log dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.case-debug-grid strong,
+.case-debug-grid code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-log-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.case-log-section h3 {
+  font-size: 0.9rem;
+}
+
+.case-log-timeline,
+.case-job-log-list {
+  display: grid;
+  gap: 8px;
+}
+
+.case-log-entry {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(96px, 0.2fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-left: 3px solid var(--border);
+  background: #fafcfb;
+  padding: 8px 10px;
+}
+
+.case-log-entry time,
+.case-log-entry span,
+.case-log-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.case-log-entry p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.case-log-entry > div {
+  min-width: 0;
+}
+
+.case-log-details {
+  margin-top: 8px;
+}
+
+.case-log-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.case-log-details pre {
+  margin-top: 8px;
+}
+
+.case-log-entry.log-warning {
+  border-left-color: #e3b46f;
+}
+
+.case-log-entry.log-error {
+  border-left-color: var(--danger);
+}
+
+.case-job-log {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fafcfb;
+}
+
+.case-job-log > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.case-job-log small {
+  color: var(--muted);
+}
+
+.case-job-log dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.case-job-log dl > div {
+  min-width: 0;
+}
+
+.case-job-log dd {
+  margin: 2px 0 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.case-log-section pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #101817;
+  color: #edf7f4;
+  padding: 12px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .actions {
@@ -510,6 +709,11 @@ button:disabled {
 .batch-table {
   display: grid;
   gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  overscroll-behavior-x: contain;
 }
 
 .invoice-row {
@@ -517,6 +721,7 @@ button:disabled {
   grid-template-columns: 42px minmax(160px, 1.5fr) minmax(100px, 1fr) minmax(100px, 0.8fr) minmax(120px, 0.8fr) minmax(92px, 0.7fr);
   gap: 10px;
   align-items: center;
+  min-width: 760px;
   min-height: auto;
   padding: 10px;
   text-align: left;
@@ -536,12 +741,14 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   gap: 14px;
   align-items: start;
+  min-width: 0;
 }
 
 .review-editor,
 .mapping-panel {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .mapping-panel {
@@ -613,7 +820,12 @@ button:disabled {
 .line-table {
   display: grid;
   gap: 10px;
+  max-width: 100%;
+  min-width: 0;
   margin: 12px 0 16px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  overscroll-behavior-x: contain;
 }
 
 .line-row {
@@ -621,6 +833,7 @@ button:disabled {
   grid-template-columns: minmax(180px, 2fr) repeat(5, minmax(84px, 0.8fr)) minmax(92px, 0.8fr) 94px 42px 42px;
   gap: 8px;
   align-items: end;
+  min-width: 980px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -684,6 +897,7 @@ button:disabled {
 
   .line-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
   }
 
   .review-layout {
@@ -692,6 +906,17 @@ button:disabled {
 
   .invoice-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .case-debug-grid,
+  .case-job-log dl {
+    grid-template-columns: 1fr;
+  }
+
+  .case-log-entry {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .line-total,
