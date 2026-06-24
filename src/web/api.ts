@@ -1,4 +1,4 @@
-import type { BatchDetails, BatchSummary, IntakeJob, InvoiceDraft, QoyodMappingRule } from "../shared/invoice";
+import type { BatchDetails, BatchSummary, DestinationPlatform, IntakeJob, InvoiceDraft, QoyodMappingRule } from "../shared/invoice";
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -58,7 +58,7 @@ export async function applyBatchMappings(batchId: string): Promise<BatchDetails 
   return parseResponse<BatchDetails & { appliedCount: number }>(response);
 }
 
-export async function bulkReviewBatch(batchId: string, reviews: Array<{ jobId: string; draft: InvoiceDraft }>): Promise<BatchDetails> {
+export async function bulkReviewBatch(batchId: string, reviews: Array<{ jobId: string; draft: InvoiceDraft; destinations?: DestinationPlatform[] }>): Promise<BatchDetails> {
   const response = await fetch(`/api/batches/${batchId}/bulk-review`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,11 +73,11 @@ export async function getJob(jobId: string): Promise<IntakeJob> {
   return body.job;
 }
 
-export async function saveReview(jobId: string, draft: InvoiceDraft): Promise<IntakeJob> {
+export async function saveReview(jobId: string, draft: InvoiceDraft, destinations?: DestinationPlatform[]): Promise<IntakeJob> {
   const response = await fetch(`/api/jobs/${jobId}/review`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ draft })
+    body: JSON.stringify({ draft, destinations })
   });
   const body = await parseResponse<{ job: IntakeJob }>(response);
   return body.job;

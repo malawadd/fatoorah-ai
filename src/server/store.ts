@@ -23,7 +23,8 @@ import {
   emptyDraft,
   intakeJobSchema,
   mappingRuleSchema,
-  normalizeInvoiceDraft
+  normalizeInvoiceDraft,
+  upsertDestinationState
 } from "../shared/invoice";
 import { applyMappingRulesToDraft } from "./mapping";
 import { reconcileDraft } from "./reconciliation";
@@ -119,6 +120,7 @@ export class JobStore {
       sourceFileName: options.sourceFileName ?? draft.attachmentRefs[0]?.name,
       duplicateKey: duplicateKeyForDraft(normalizedDraft),
       reviewFlags: [],
+      destinations: [],
       events: [{ at: now, level: "info", message: "Capture received." }]
     };
     this.jobs.set(job.jobId, job);
@@ -353,6 +355,13 @@ export class JobStore {
         claimedAt: now,
         updatedAt: now
       },
+      destinations: upsertDestinationState(current.destinations, {
+        platform: "qoyod",
+        status: "posting",
+        requestedAt: current.destinations?.find((destination) => destination.platform === "qoyod")?.requestedAt ?? now,
+        startedAt: now,
+        updatedAt: now
+      }),
       events: [
         ...current.events,
         {

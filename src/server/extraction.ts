@@ -248,7 +248,7 @@ async function extractWithOpenAi(job: IntakeJob, attachment: AttachmentRef, apiK
           content: [
             {
               type: "input_text",
-              text: "Extract invoice data into the provided schema. Return only values visible in the source. Use empty strings or zeroes when unsure. Never invent Qoyod mappings."
+              text: "Extract invoice data into the provided schema. Return only values visible in the source. Use empty strings or zeroes when unsure. Never invent destination mappings."
             }
           ]
         },
@@ -301,7 +301,7 @@ async function normalizeWithDeepSeek(job: IntakeJob, result: ExtractionResult): 
       messages: [
         {
           role: "system",
-          content: "Normalize invoice JSON only. Preserve facts from the draft. Do not add Qoyod mapping IDs. Output a single JSON object matching InvoiceDraft."
+          content: "Normalize invoice JSON only. Preserve facts from the draft. Do not add destination mapping IDs. Output a single JSON object matching InvoiceDraft."
         },
         {
           role: "user",
@@ -339,11 +339,11 @@ async function normalizeWithDeepSeek(job: IntakeJob, result: ExtractionResult): 
 
 function promptFor(job: IntakeJob): string {
   return [
-    "Extract a purchase invoice for Qoyod intake.",
+    "Extract a purchase invoice for invoice intake.",
     "Include all visible line items.",
     "Use SAR as currency when the invoice is Saudi and no explicit currency is visible.",
     "Tax rates are percentages, not fractions.",
-    "Do not create or guess Qoyod item/expense mappings.",
+    "Do not create or guess destination item/expense mappings.",
     `Known ZATCA QR TLV data: ${JSON.stringify(job.draft.qrTlv ?? null)}`
   ].join("\n");
 }

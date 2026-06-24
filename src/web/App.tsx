@@ -17,8 +17,8 @@ import {
   Wand2
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BatchDetails, BatchSummary, CaseStage, IntakeJob, InvoiceDraft, InvoiceLineItem, JobStatus, QoyodMapping, QoyodMappingRule } from "../shared/invoice";
-import { caseStages, deriveHeaderTotalsFromLines, normalizeInvoiceDraft, recalculateLineTotals } from "../shared/invoice";
+import type { BatchDetails, BatchSummary, CaseStage, DestinationPlatform, IntakeJob, InvoiceDraft, InvoiceLineItem, JobStatus, QoyodMapping, QoyodMappingRule } from "../shared/invoice";
+import { caseStages, deriveHeaderTotalsFromLines, destinationLabel, normalizeInvoiceDraft, recalculateLineTotals } from "../shared/invoice";
 import { decodeZatcaTlv } from "../shared/zatca";
 import {
   applyBatchMappings,
@@ -38,14 +38,20 @@ const statusLabels: Record<JobStatus, string> = {
   queued: "Queued",
   extracting: "Extracting",
   needs_review: "Needs review",
+  reviewed: "Reviewed",
   ready_for_qoyod: "Ready for Qoyod",
   qoyod_filling: "Filling Qoyod",
   ready_for_robot: "Ready for Qoyod",
   robot_running: "Filling Qoyod",
+  posting: "Posting",
+  posted: "Posted",
+  posting_error: "Posting error",
   draft_saved: "Draft saved",
   rejected: "Rejected",
   error: "Error"
 };
+
+const destinationOptions: DestinationPlatform[] = ["qoyod", "erpnext"];
 
 const emptyMapping: QoyodMapping = {
   type: "expense",
@@ -104,6 +110,18 @@ function formatTimestamp(value: string | undefined): string {
   if (!value) return "-";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function destinationsForJob(job: IntakeJob | null): DestinationPlatform[] {
+  const platforms = job?.destinations?.map((destination) => destination.platform) ?? [];
+  return platforms.length ? Array.from(new Set(platforms)) : ["qoyod"];
+}
+
+function destinationSummary(job: IntakeJob): string {
+  if (!job.destinations?.length) return "Qoyod";
+  return job.destinations
+    .map((destination) => `${destinationLabel(destination.platform)}: ${destination.status.replace(/_/g, " ")}`)
+    .join(" | ");
 }
 
 function compactJson(value: unknown): string {
@@ -324,6 +342,7 @@ export function App() {
   const [draft, setDraft] = useState<InvoiceDraft | null>(null);
   const [mappings, setMappings] = useState<QoyodMappingRule[]>([]);
   const [ruleForm, setRuleForm] = useState(emptyRule);
+  const [selectedDestinations, setSelectedDestinations] = useState<DestinationPlatform[]>(["qoyod"]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -350,7 +369,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!currentBatch || !currentBatch.jobs.some((job) => ["queued", "extracting", "qoyod_filling", "robot_running"].includes(job.status))) {
+    if (!currentBatch || !currentBatch.jobs.some((job) => ["queued", "extracting", "qoyod_filling", "robot_running", "posting"].includes(job.status))) {
       return;
     }
 
@@ -365,6 +384,7 @@ export function App() {
     const nextJob = currentBatch?.jobs.find((job) => job.jobId === selectedJobId) ?? currentBatch?.jobs[0] ?? null;
     setSelectedJobId(nextJob?.jobId ?? "");
     setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
+    setSelectedDestinations(destinationsForJob(nextJob));
   }, [currentBatch?.batch.batchId]);
 
   async function refreshAll() {
@@ -462,6 +482,7 @@ export function App() {
   function selectJob(job: IntakeJob) {
     setSelectedJobId(job.jobId);
     setDraft(normalizeInvoiceDraft(job.draft));
+    setSelectedDestinations(destinationsForJob(job));
     setError("");
     setNotice("");
   }
@@ -508,10 +529,11 @@ export function App() {
     setError("");
     setNotice("");
     try {
-      const updated = await saveReview(selectedJob.jobId, draft);
+      const updated = await saveReview(selectedJob.jobId, draft, selectedDestinations);
       setCurrentBatch((batch) => mergeBatchJob(batch, updated));
       setDraft(normalizeInvoiceDraft(updated.draft));
-      setNotice(updated.status === "ready_for_qoyod" ? "Invoice is ready for Qoyod." : "Review saved with blocking checks.");
+      setSelectedDestinations(destinationsForJob(updated));
+      setNotice(updated.validation?.canSubmitToRobot ? `Invoice is ready for ${selectedDestinations.map(destinationLabel).join(", ")}.` : "Review saved with blocking checks.");
       if (updated.batchId) await refreshBatch(updated.batchId);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
@@ -541,7 +563,8 @@ export function App() {
     if (!currentBatch || currentBatch.batch.batchId === "unbatched") return;
     const reviews = currentBatch.jobs.map((job) => ({
       jobId: job.jobId,
-      draft: job.jobId === selectedJobId && draft ? draft : job.draft
+      draft: job.jobId === selectedJobId && draft ? draft : job.draft,
+      destinations: selectedDestinations
     }));
     setBusy(true);
     setError("");
@@ -550,7 +573,8 @@ export function App() {
       setCurrentBatch(updated);
       const nextJob = updated.jobs.find((job) => job.jobId === selectedJobId) ?? updated.jobs[0] ?? null;
       setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
-      setNotice("Batch review saved. Valid invoices are ready for Qoyod.");
+      setSelectedDestinations(destinationsForJob(nextJob));
+      setNotice(`Batch review saved. Valid invoices are ready for ${selectedDestinations.map(destinationLabel).join(", ")}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -627,14 +651,23 @@ export function App() {
     }
   }
 
+  function toggleDestination(platform: DestinationPlatform, active: boolean) {
+    setSelectedDestinations((current) => {
+      const next = new Set(current);
+      if (active) next.add(platform);
+      else next.delete(platform);
+      return next.size ? Array.from(next) : ["qoyod"];
+    });
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
           <Layers3 size={24} aria-hidden="true" />
           <div>
-            <strong>Qoyod Intake</strong>
-            <span>Batch invoice review and draft handoff</span>
+            <strong>Invoice Intake</strong>
+            <span>Batch invoice review and platform handoff</span>
           </div>
         </div>
         <div className={`status-pill ${statusClass(currentBatch?.summary.status)}`}>
@@ -787,7 +820,7 @@ export function App() {
                     <span>{job.draft.invoiceNumber || job.jobId.slice(0, 8)}</span>
                     <span>{job.draft.grandTotal.toFixed(2)} {job.draft.currency}</span>
                     <span className={`row-status ${statusClass(job.status)}`}>{statusLabels[job.status]}</span>
-                    <span>{job.reviewFlags?.includes("duplicate_invoice") ? "Duplicate" : `${job.draft.lineItems.length} lines`}</span>
+                    <span>{job.reviewFlags?.includes("duplicate_invoice") ? "Duplicate" : destinationSummary(job)}</span>
                   </button>
                 ))}
               </div>
@@ -848,6 +881,22 @@ export function App() {
                         <Plus size={18} />
                         Add line
                       </button>
+                    </div>
+
+                    <div className="destination-selector">
+                      <h3>Destinations</h3>
+                      <div>
+                        {destinationOptions.map((platform) => (
+                          <label className="checkbox-field" key={platform}>
+                            <input
+                              type="checkbox"
+                              checked={selectedDestinations.includes(platform)}
+                              onChange={(event) => toggleDestination(platform, event.target.checked)}
+                            />
+                            <span>{destinationLabel(platform)}</span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="line-table">
@@ -926,7 +975,7 @@ export function App() {
                     <h3>Mapping Library</h3>
                     <div className="mapping-form">
                       <label className="field">
-                        <span>Qoyod mapping label</span>
+                        <span>Destination mapping label</span>
                         <input value={ruleForm.label} onChange={(event) => setRuleForm({ ...ruleForm, label: event.target.value })} />
                       </label>
                       <label className="field">

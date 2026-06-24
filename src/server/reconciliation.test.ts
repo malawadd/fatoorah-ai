@@ -56,6 +56,6 @@ describe("reconcileDraft", () => {
 
     expect(result.canSubmitToRobot).toBe(false);
     expect(result.blocking).toContain("Header grand total does not reconcile with line items.");
-    expect(result.blocking).toContain("Line 1: Qoyod item or expense mapping is required.");
+    expect(result.blocking).toContain("Line 1: destination item or expense mapping is required.");
   });
 });

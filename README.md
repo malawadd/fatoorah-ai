@@ -1,12 +1,13 @@
-# Qoyod Invoice Intake as Backend-First UiPath Maestro Case
+# Multi-Platform Invoice Intake as Backend-First UiPath Maestro Case
 
-Track 1 pilot for invoice intake into Qoyod without IXP, RPA, or Qoyod API access.
+Track 1 pilot for invoice intake into Qoyod and ERPNext without IXP or RPA runtime dependency.
 
 - Phone PWA captures QR plus one or many invoice photos/PDFs as a batch.
 - Express API stores job state, uploads files to Orchestrator Storage, creates `InvoiceIntake` queue items, and can start one Maestro Case per uploaded batch once CaseManagement runtime is available.
 - Extraction runs through a modular backend worker: OpenAI vision/PDF first, DeepSeek JSON normalization second when configured.
-- Finance review remains human-controlled in the PWA with batch filtering, reusable local mapping rules, and per-invoice release to Qoyod.
+- Finance review remains human-controlled in the PWA with batch filtering, reusable local mapping rules, and per-invoice release to one or more destinations.
 - Qoyod fill is handled by a desktop Chrome extension using the user's logged-in Qoyod browser session. It saves draft only after explicit confirmation.
+- ERPNext posting is handled through Frappe REST APIs. It creates Purchase Invoice drafts and attaches the source invoice image/PDF; v1 never submits accounting entries.
 
 ## Run Locally
 
@@ -74,6 +75,13 @@ $env:OPENAI_EXTRACTION_MODEL="gpt-4.1"
 $env:DEEPSEEK_API_KEY="<deepseek-key>"
 $env:DEEPSEEK_MODEL="deepseek-v4-flash"
 $env:FILLER_API_TOKEN="<shared-extension-token>"
+$env:INVOICE_DESTINATIONS="qoyod,erpnext"
+$env:ERPNEXT_BASE_URL="https://your-sandbox.example"
+$env:ERPNEXT_API_KEY="<api-key>"
+$env:ERPNEXT_API_SECRET="<api-secret>"
+$env:ERPNEXT_COMPANY="<company>"
+$env:ERPNEXT_DEFAULT_EXPENSE_ACCOUNT="<expense-account>"
+$env:ERPNEXT_DEFAULT_COST_CENTER="<cost-center>"
 ```
 
 Use `EXTRACTION_MODE=external` plus `EXTRACTION_START_URL` when extraction moves to a separate backend. Cloud Maestro cannot call localhost, so Case-driven execution needs `PUBLIC_API_BASE_URL` to be a public HTTPS URL.
@@ -99,6 +107,36 @@ Run the read-only preflight before a demo:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\maestro-preflight.ps1
 ```
+
+## ERPNext Destination
+
+Configure ERPNext against a sandbox/staging site first. Required values:
+
+- `ERPNEXT_BASE_URL`
+- `ERPNEXT_API_KEY`
+- `ERPNEXT_API_SECRET`
+- `ERPNEXT_COMPANY`
+- `ERPNEXT_DEFAULT_EXPENSE_ACCOUNT`
+- `ERPNEXT_DEFAULT_COST_CENTER`
+
+Optional values:
+
+- `ERPNEXT_DEFAULT_ITEM_CODE` for sites that require an item code on every Purchase Invoice row.
+- `ERPNEXT_PURCHASE_TAXES_AND_CHARGES_TEMPLATE` or `ERPNEXT_VAT_ACCOUNT_HEAD` for tax handling.
+- `ERPNEXT_TEST_SUPPLIER` for live smoke tests.
+
+`ERPNEXT_SUBMIT_AFTER_POST` must stay `false` in v1. ERPNext output is a draft Purchase Invoice plus the uploaded source attachment.
+
+Run live sandbox validation explicitly:
+
+```powershell
+$env:LIVE_ERPNEXT_TEST="true"
+$env:LIVE_UIPATH_TEST="true"
+$env:ERPNEXT_TEST_SUPPLIER="<existing-sandbox-supplier>"
+npm run smoke:live
+```
+
+The ERPNext smoke test creates a uniquely numbered `UIPATH-TEST-<timestamp>` draft and leaves it in the sandbox for manual inspection.
 
 ## API Endpoints
 
@@ -136,6 +174,15 @@ GET /api/fill/jobs/{jobId}/source
 POST /api/fill/jobs/{jobId}/status
 ```
 
+Destinations:
+
+```http
+GET /api/destinations
+GET /api/destinations/erpnext/preflight
+POST /api/jobs/{jobId}/destinations/erpnext/post
+POST /api/case/jobs/{jobId}/destinations/erpnext/post
+```
+
 Maestro Case callbacks:
 
 ```http
@@ -171,12 +218,14 @@ The extension never stores Qoyod credentials and never clicks approve/submit.
 - No RPA license/runtime: Qoyod fill is extension-assisted.
 - No Qoyod API access: the extension uses the logged-in browser session.
 - No CaseManagement runtime in staging: backend-first execution is active until runtime is allocated.
+- ERPNext requires existing sandbox master data: Supplier, Company, Account, Cost Center, and tax/item setup as configured.
 
 ## Verify
 
 ```powershell
 npm test
 npm run build
+npm run smoke:live
 npm audit --audit-level=low
 powershell -ExecutionPolicy Bypass -File scripts\maestro-preflight.ps1
 uip maestro case validate uipath/QoyodInvoiceIntakeSolution/QoyodInvoiceIntakeCase/caseplan.json --output json

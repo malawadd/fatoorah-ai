@@ -148,6 +148,7 @@ async function jobFixture(): Promise<IntakeJob> {
         }
       ]
     },
+    destinations: [],
     events: []
   };
 }

@@ -38,7 +38,7 @@ export function reconcileDraft(draft: InvoiceDraft): ValidationResult {
 
     if (!item.description.trim()) blocking.push(`Line ${lineNumber}: description is required.`);
     if (item.quantity <= 0) blocking.push(`Line ${lineNumber}: quantity must be greater than zero.`);
-    if (!item.selectedQoyodMapping?.id) blocking.push(`Line ${lineNumber}: Qoyod item or expense mapping is required.`);
+    if (!item.selectedQoyodMapping?.id) blocking.push(`Line ${lineNumber}: destination item or expense mapping is required.`);
     if (item.taxAmount && !closeEnough(item.taxAmount, expectedVat)) {
       warnings.push(`Line ${lineNumber}: tax amount differs from quantity x unit price x tax rate.`);
     }

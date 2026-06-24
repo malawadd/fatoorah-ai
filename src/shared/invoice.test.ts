@@ -48,8 +48,11 @@ describe("invoice draft normalization", () => {
   it("maps batch status to the local Maestro Case cockpit stage", () => {
     expect(caseStageFromBatchStatus("processing")).toBe("Extraction And Reconciliation");
     expect(caseStageFromBatchStatus("needs_review")).toBe("Finance Review And Mapping");
+    expect(caseStageFromBatchStatus("reviewed")).toBe("Destination Posting");
     expect(caseStageFromBatchStatus("ready_for_qoyod")).toBe("Qoyod Drafting");
     expect(caseStageFromBatchStatus("error")).toBe("Exception Resolution");
+    expect(caseStageFromBatchStatus("posting_error")).toBe("Exception Resolution");
     expect(caseStageFromBatchStatus("draft_saved")).toBe("Closed");
+    expect(caseStageFromBatchStatus("posted")).toBe("Closed");
   });
 });

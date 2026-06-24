@@ -14,6 +14,17 @@ export type UiPathCommandResult = {
   message?: string;
 };
 
+export type UiPathLivePreflightResult = {
+  ok: boolean;
+  checks: Array<{
+    name: string;
+    ok: boolean;
+    message: string;
+    command?: string[];
+    data?: unknown;
+  }>;
+};
+
 type UiPathConfig = {
   enabled: boolean;
   folderPath: string;
@@ -517,4 +528,82 @@ export async function maybeStartBatchCase(batch: InvoiceBatch, jobs: IntakeJob[]
   args.push("--output", "json");
 
   return runUip(args, config);
+}
+
+async function preflightCheck(
+  checks: UiPathLivePreflightResult["checks"],
+  name: string,
+  args: string[] | undefined,
+  missing: string | undefined,
+  config: UiPathConfig
+): Promise<void> {
+  if (missing) {
+    checks.push({ name, ok: false, message: missing, command: args ? ["uip", ...args] : undefined });
+    return;
+  }
+
+  if (!args) {
+    checks.push({ name, ok: true, message: "OK" });
+    return;
+  }
+
+  const result = await runUip(args, config);
+  checks.push({
+    name,
+    ok: !result.error && result.mode === "uip",
+    message: result.error ?? result.message ?? "OK",
+    command: result.command,
+    data: result.data
+  });
+}
+
+export async function runUiPathLivePreflight(): Promise<UiPathLivePreflightResult> {
+  const config = readConfig();
+  const checks: UiPathLivePreflightResult["checks"] = [];
+
+  await preflightCheck(
+    checks,
+    "uipath_enabled",
+    undefined,
+    config.enabled ? undefined : "UIPATH_ENABLED=true is required for live UiPath validation.",
+    config
+  );
+
+  await preflightCheck(checks, "login_status", ["login", "status", "--output", "json"], undefined, config);
+  await preflightCheck(
+    checks,
+    "folder",
+    ["or", "folders", "list", "--output", "json"],
+    requireFolder(config),
+    config
+  );
+  await preflightCheck(
+    checks,
+    "queue",
+    ["or", "queues", "list", "--folder-path", config.folderPath, "--name", config.queueName, "--output", "json"],
+    requireFolder(config) ?? (!config.queueName ? "UIPATH_QUEUE_NAME is required for live UiPath validation." : undefined),
+    config
+  );
+  await preflightCheck(
+    checks,
+    "bucket",
+    ["or", "buckets", "get", config.bucketKey, "--folder-path", config.folderPath, "--output", "json"],
+    requireFolder(config) ?? (!config.bucketKey ? "UIPATH_BUCKET_KEY is required for live UiPath validation." : undefined),
+    config
+  );
+
+  if (config.caseProcessKey) {
+    await preflightCheck(
+      checks,
+      "case_processes",
+      ["or", "processes", "list", "--folder-path", config.folderPath, "--output", "json"],
+      requireFolder(config),
+      config
+    );
+  }
+
+  return {
+    ok: checks.every((check) => check.ok),
+    checks
+  };
 }

@@ -1,6 +1,6 @@
-# Qoyod Invoice Intake User Guide
+# Multi-Platform Invoice Intake User Guide
 
-This guide walks through the no-IXP/no-RPA pilot from invoice capture to a saved Qoyod draft.
+This guide walks through the no-IXP/no-RPA pilot from invoice capture to destination drafts in Qoyod and ERPNext.
 
 ## What You Need
 
@@ -11,6 +11,7 @@ This guide walks through the no-IXP/no-RPA pilot from invoice capture to a saved
 - Optional DeepSeek key for second-pass normalization.
 - Qoyod Filler Chrome extension loaded as an unpacked extension.
 - A Chrome browser session already logged into Qoyod.
+- Optional ERPNext sandbox API token and master data for Purchase Invoice draft creation.
 
 ## Moving Parts
 
@@ -20,9 +21,10 @@ This guide walks through the no-IXP/no-RPA pilot from invoice capture to a saved
 - UiPath Maestro Case artifact: defines one dynamic Case per uploaded batch and will call the same backend endpoints after CaseManagement runtime is available.
 - Local Maestro Case cockpit: shows the active stage, runtime mode, Case identifiers, and exceptions while staging runtime is unavailable.
 - Orchestrator bucket/queue: stores source files and queue signals for the UiPath-facing pilot surface.
-- Finance review: confirms fields, totals, line items, duplicate warnings, and Qoyod item/expense mappings before Qoyod is touched.
+- Finance review: confirms fields, totals, line items, duplicate warnings, and destination item/expense mappings before any platform is touched.
 - Chrome side panel extension: claims a reviewed job, optionally from a selected batch, and fills Qoyod in the logged-in browser.
 - Qoyod browser tab: remains under the user’s control; the output is a draft only.
+- ERPNext adapter: creates Purchase Invoice drafts through the ERPNext/Frappe API and attaches the original invoice picture/PDF.
 
 ## 1. Start The App
 
@@ -42,6 +44,7 @@ $env:PUBLIC_API_BASE_URL="http://localhost:8787"
 $env:EXTRACTION_MODE="local"
 $env:OPENAI_API_KEY="<openai-key>"
 $env:FILLER_API_TOKEN="<shared-extension-token>"
+$env:INVOICE_DESTINATIONS="qoyod,erpnext"
 ```
 
 ## 1A. Optional Phone And Maestro HTTPS Tunnels
@@ -108,7 +111,7 @@ Each invoice status moves to Extracting while the backend worker runs.
 
 Refresh or wait for the batch table to show invoices ready for review.
 
-The Maestro Case cockpit at the top of the batch workspace moves through Capture Intake, Extraction And Reconciliation, Finance Review And Mapping, Qoyod Drafting, Exception Resolution, and Closed. In live mode Maestro owns the stage updates. In local fallback mode the backend mirrors stage progress from invoice statuses.
+The Maestro Case cockpit at the top of the batch workspace moves through Capture Intake, Extraction And Reconciliation, Finance Review And Mapping, Destination Posting, Qoyod Drafting, Exception Resolution, and Closed. In live mode Maestro owns the stage updates. In local fallback mode the backend mirrors stage progress from invoice statuses.
 
 ## 4. Review, Map, And Release
 
@@ -118,12 +121,47 @@ In the PWA batch workspace:
 2. Filter invoices by All, Review, Ready, or Drafts.
 3. Select an invoice row.
 4. Check supplier, tax ID, invoice number, dates, currency, totals, and every line.
-5. For each line, set the Qoyod mapping label and type.
+5. For each line, set the destination mapping label and type.
 6. Click the wand button on a line to save a reusable mapping rule for similar future lines.
 7. Click Apply mappings to apply existing rules across the batch.
-8. Click Save invoice review for one invoice, or Save batch review to release every valid invoice.
+8. Choose the destinations: Qoyod, ERPNext, or both.
+9. Click Save invoice review for one invoice, or Save batch review to release every valid invoice.
 
-Each invoice becomes ready for Qoyod only when totals reconcile and required mappings are present. Other invoices in the same batch can remain in review.
+Each invoice becomes ready for selected destinations only when totals reconcile and required mappings are present. Other invoices in the same batch can remain in review.
+
+## 4A. ERPNext Draft Posting
+
+ERPNext is API-based, so no browser extension is needed when API tokens are configured.
+
+Required sandbox configuration:
+
+```powershell
+$env:ERPNEXT_BASE_URL="https://your-sandbox.example"
+$env:ERPNEXT_API_KEY="<api-key>"
+$env:ERPNEXT_API_SECRET="<api-secret>"
+$env:ERPNEXT_COMPANY="<company>"
+$env:ERPNEXT_DEFAULT_EXPENSE_ACCOUNT="<expense-account>"
+$env:ERPNEXT_DEFAULT_COST_CENTER="<cost-center>"
+$env:ERPNEXT_SUBMIT_AFTER_POST="false"
+```
+
+Maestro or an operator can trigger ERPNext posting after review:
+
+```http
+POST /api/case/jobs/{jobId}/destinations/erpnext/post
+```
+
+The backend creates an ERPNext Purchase Invoice draft, uploads the source image/PDF as a private attachment, and stores the ERPNext reference on the job destination state. It does not submit the invoice.
+
+For live sandbox validation:
+
+```powershell
+$env:LIVE_ERPNEXT_TEST="true"
+$env:ERPNEXT_TEST_SUPPLIER="<existing-sandbox-supplier>"
+npm run smoke:live
+```
+
+The smoke test creates a `UIPATH-TEST-<timestamp>` draft and leaves it in ERPNext for inspection.
 
 ## 5. Load The Chrome Side Panel
 
@@ -176,6 +214,7 @@ The extension reports `draft_saved` back to the backend. It does not approve or 
 - No reviewed invoice is ready: finish review in the PWA, make sure every line has a mapping, and confirm the side panel is not scoped to the wrong batch.
 - Mapping rules did not apply: confirm the line description contains the rule match text and supplier-scoped rules match the selected invoice supplier.
 - Duplicate warning: another invoice has the same supplier tax ID and invoice number; resolve it before filling Qoyod.
+- ERPNext posting failed: open the job timeline details and check the ERPNext destination error. Common causes are missing Supplier, Account, Cost Center, Item, or tax configuration in the sandbox.
 - Qoyod is not logged in: log into Qoyod in the same Chrome profile, then retry.
 - Missing calibration: open the Qoyod draft form and run Calibrate selectors.
 - Selector failure: recalibrate; Qoyod likely changed markup or the wrong form is open.

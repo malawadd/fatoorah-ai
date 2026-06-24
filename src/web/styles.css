@@ -93,6 +93,8 @@ button {
 .status-needs_review,
 .status-queued,
 .status-extracting,
+.status-reviewed,
+.status-posting,
 .status-qoyod_filling,
 .status-robot_running {
   border-color: #e3b46f;
@@ -101,12 +103,14 @@ button {
 
 .status-ready_for_robot,
 .status-ready_for_qoyod,
+.status-posted,
 .status-draft_saved {
   border-color: #87c9a7;
   color: var(--success);
 }
 
 .status-rejected,
+.status-posting_error,
 .status-error {
   border-color: #df9b94;
   color: var(--danger);
@@ -762,6 +766,21 @@ button:disabled {
 .mapping-list {
   display: grid;
   gap: 10px;
+}
+
+.destination-selector {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfc;
+}
+
+.destination-selector > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
 }
 
 .checkbox-field {

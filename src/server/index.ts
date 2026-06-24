@@ -5,9 +5,18 @@ import multer from "multer";
 import path from "node:path";
 import { v4 as uuid } from "uuid";
 import { ZodError } from "zod";
-import type { AttachmentRef, CaseStage, CaseStatus, IntakeJob, InvoiceBatch, InvoiceDraft, JobEvent } from "../shared/invoice";
-import { caseStages, caseStatuses, invoiceDraftSchema, jobStatuses, normalizeInvoiceDraft } from "../shared/invoice";
+import type { AttachmentRef, CaseStage, CaseStatus, DestinationPlatform, IntakeJob, InvoiceBatch, InvoiceDraft, JobEvent, ValidationResult } from "../shared/invoice";
+import { caseStages, caseStatuses, destinationLabel, invoiceDraftSchema, jobStatuses, normalizeInvoiceDraft, upsertDestinationState } from "../shared/invoice";
 import { decodeZatcaTlv } from "../shared/zatca";
+import {
+  destinationPlatformsFromBody,
+  destinationReadyStates,
+  mergeDestinationStates,
+  readyDestinationMessage,
+  releasedJobStatus,
+  statusAfterDestinationPosting
+} from "./destinations";
+import { createErpNextPurchaseInvoiceDraft, erpNextDestinationState, preflightErpNext } from "./erpnext";
 import { buildExtractionJobInput, extractInvoiceDraft, startExternalExtraction } from "./extraction";
 import { reconcileDraft } from "./reconciliation";
 import { jobStore, UPLOAD_DIR } from "./store";
@@ -150,6 +159,21 @@ function verifyCaseToken(request: Request, response: Response): boolean {
   return true;
 }
 
+function verifyDestinationToken(request: Request, response: Response): boolean {
+  const accepted = [
+    process.env.DESTINATION_POST_TOKEN,
+    process.env.CASE_CALLBACK_TOKEN,
+    process.env.INTAKE_WEBHOOK_TOKEN
+  ].filter((token): token is string => Boolean(token));
+  const provided = request.header("x-destination-token") ?? request.header("x-case-token") ?? request.header("x-intake-token");
+
+  if (accepted.length > 0 && (!provided || !accepted.includes(provided))) {
+    response.status(401).json({ error: "Invalid destination post token." });
+    return false;
+  }
+  return true;
+}
+
 function verifyExtractionToken(request: Request, response: Response): boolean {
   const extractionToken = process.env.EXTRACTION_CALLBACK_TOKEN;
   const caseToken = process.env.CASE_CALLBACK_TOKEN;
@@ -189,6 +213,154 @@ function commandDetails(result: UiPathCommandResult, extra: Record<string, unkno
     error: result.error,
     message: result.message
   };
+}
+
+function destinationsForDecision(body: unknown): DestinationPlatform[] {
+  const payload = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const decision = String(payload.reviewDecision ?? "").toLowerCase();
+  if (["approve_for_erpnext", "ready_for_erpnext"].includes(decision)) return ["erpnext"];
+  if (["approve_for_qoyod", "ready_for_robot"].includes(decision)) return ["qoyod"];
+  if (["approve_for_all", "ready_for_all"].includes(decision)) return ["qoyod", "erpnext"];
+  return destinationPlatformsFromBody(body);
+}
+
+function reviewPatch(
+  current: IntakeJob,
+  draft: InvoiceDraft,
+  validation: ValidationResult,
+  platforms: DestinationPlatform[],
+  messagePrefix?: string
+): Partial<IntakeJob> {
+  const now = new Date().toISOString();
+  const canRelease = validation.canSubmitToRobot;
+  const destinations = canRelease
+    ? mergeDestinationStates(current.destinations, destinationReadyStates(platforms, now))
+    : current.destinations;
+
+  return {
+    status: releasedJobStatus(validation, platforms),
+    fill: canRelease && platforms.includes("qoyod") ? {
+      method: "chrome_extension",
+      status: "ready",
+      updatedAt: now
+    } : current.fill,
+    destinations,
+    draft,
+    validation,
+    events: [
+      ...current.events,
+      {
+        at: now,
+        level: canRelease ? "info" : "warning",
+        message: canRelease
+          ? `${messagePrefix ? `${messagePrefix} ` : ""}${readyDestinationMessage(platforms)}`
+          : `${messagePrefix ? `${messagePrefix} ` : ""}Review saved with blocking checks.`
+      }
+    ]
+  };
+}
+
+async function postDestinationForJob(jobId: string, platform: DestinationPlatform, source: "api" | "case"): Promise<{ job: IntakeJob; ok: boolean }> {
+  if (platform !== "erpnext") {
+    throw new Error(`Destination ${platform} does not support backend API posting.`);
+  }
+
+  const current = await jobStore.get(jobId);
+  if (!current) {
+    throw new Error(`Job ${jobId} was not found.`);
+  }
+
+  const validation = current.validation ?? reconcileDraft(current.draft);
+  if (!validation.canSubmitToRobot) {
+    const job = await jobStore.update(current.jobId, {
+      status: "needs_review",
+      validation,
+      events: [
+        ...current.events,
+        {
+          at: new Date().toISOString(),
+          level: "warning",
+          message: `ERPNext posting blocked by review checks: ${validation.blocking.join(" ")}`
+        }
+      ]
+    });
+    return { job, ok: false };
+  }
+
+  const startedAt = new Date().toISOString();
+  const startedJob = await jobStore.update(current.jobId, {
+    status: statusAfterDestinationPosting(current, platform, "started"),
+    validation,
+    destinations: upsertDestinationState(current.destinations, {
+      platform,
+      status: "posting",
+      requestedAt: current.destinations?.find((destination) => destination.platform === platform)?.requestedAt ?? startedAt,
+      startedAt,
+      updatedAt: startedAt
+    }),
+    events: [
+      ...current.events,
+      {
+        at: startedAt,
+        level: "info",
+        message: `${destinationLabel(platform)} posting started by ${source}.`
+      }
+    ]
+  });
+
+  try {
+    const result = await createErpNextPurchaseInvoiceDraft(startedJob);
+    const state = erpNextDestinationState(result);
+    const destinations = upsertDestinationState(startedJob.destinations, state);
+    const jobForStatus = { ...startedJob, destinations };
+    const job = await jobStore.update(startedJob.jobId, {
+      status: statusAfterDestinationPosting(jobForStatus, platform, "success"),
+      destinations,
+      events: [
+        ...startedJob.events,
+        {
+          at: new Date().toISOString(),
+          level: "info",
+          message: `ERPNext Purchase Invoice draft created: ${result.invoiceName}.`,
+          details: {
+            platform,
+            externalReference: result.invoiceName,
+            externalUrl: result.invoiceUrl,
+            attachmentName: result.attachmentName,
+            attachmentUrl: result.attachmentUrl
+          }
+        }
+      ]
+    });
+    return { job, ok: true };
+  } catch (error) {
+    const now = new Date().toISOString();
+    const message = error instanceof Error ? error.message : String(error);
+    const destinations = upsertDestinationState(startedJob.destinations, {
+      platform,
+      status: "error",
+      errorCode: "erpnext_post_failed",
+      errorMessage: message,
+      requestedAt: startedJob.destinations?.find((destination) => destination.platform === platform)?.requestedAt,
+      startedAt,
+      updatedAt: now
+    });
+    const jobForStatus = { ...startedJob, destinations };
+    const job = await jobStore.update(startedJob.jobId, {
+      status: statusAfterDestinationPosting(jobForStatus, platform, "error"),
+      destinations,
+      events: [
+        ...startedJob.events,
+        {
+          at: now,
+          level: "error",
+          message: `ERPNext posting failed: ${message}`,
+          details: { platform, errorCode: "erpnext_post_failed", errorMessage: message }
+        }
+      ]
+    });
+    return { job, ok: false };
+  }
 }
 
 function casePatchFromBody(body: unknown): Pick<IntakeJob, "caseInstanceId" | "caseJobKey" | "caseExternalId" | "caseStage"> {
@@ -706,30 +878,72 @@ app.post("/api/batches/:batchId/bulk-review", asyncHandler(async (request, respo
     const validation = reconcileDraft(draft);
     const current = await jobStore.get(jobId);
     if (!current) continue;
-    await jobStore.update(jobId, {
-      status: validation.canSubmitToRobot ? "ready_for_qoyod" : "needs_review",
-      fill: validation.canSubmitToRobot ? {
-        method: "chrome_extension",
-        status: "ready",
-        updatedAt: new Date().toISOString()
-      } : current.fill,
-      draft,
-      validation,
-      events: [
-        ...current.events,
-        {
-          at: new Date().toISOString(),
-          level: validation.canSubmitToRobot ? "info" : "warning",
-          message: validation.canSubmitToRobot
-            ? "Batch review marked this invoice ready for Qoyod."
-            : "Batch review saved with blocking checks."
-        }
-      ]
-    });
+    const platforms = "destinations" in payload || "destinationPlatforms" in payload
+      ? destinationPlatformsFromBody(payload)
+      : destinationPlatformsFromBody(request.body);
+    await jobStore.update(jobId, reviewPatch(current, draft, validation, platforms, "Batch review saved."));
   }
 
   const updated = await jobStore.getBatchDetails(batchId);
   response.json(updated);
+}));
+
+app.get("/api/destinations", (_request, response) => {
+  response.json({
+    destinations: [
+      { platform: "qoyod", label: "Qoyod", method: "chrome_extension" },
+      { platform: "erpnext", label: "ERPNext", method: "api" }
+    ],
+    defaults: destinationPlatformsFromBody({})
+  });
+});
+
+app.get("/api/destinations/erpnext/preflight", asyncHandler(async (request, response) => {
+  if (!verifyDestinationToken(request, response)) return;
+
+  const result = await preflightErpNext({
+    supplierName: optionalString(request.query.supplierName),
+    itemCode: optionalString(request.query.itemCode)
+  });
+  response.status(result.ok ? 200 : 424).json(result);
+}));
+
+app.post("/api/jobs/:jobId/destinations/:platform/post", asyncHandler(async (request, response) => {
+  if (!verifyDestinationToken(request, response)) return;
+
+  const platform = String(routeParam(request.params.platform)).toLowerCase();
+  if (platform !== "erpnext") {
+    response.status(400).json({ error: `Unsupported posting destination: ${platform}` });
+    return;
+  }
+
+  const jobId = routeParam(request.params.jobId);
+  if (!await jobStore.get(jobId)) {
+    response.status(404).json({ error: "Job not found." });
+    return;
+  }
+
+  const result = await postDestinationForJob(jobId, platform, "api");
+  response.status(result.ok ? 200 : 424).json({ job: result.job });
+}));
+
+app.post("/api/case/jobs/:jobId/destinations/:platform/post", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const platform = String(routeParam(request.params.platform)).toLowerCase();
+  if (platform !== "erpnext") {
+    response.status(400).json({ error: `Unsupported posting destination: ${platform}` });
+    return;
+  }
+
+  const jobId = routeParam(request.params.jobId);
+  if (!await jobStore.get(jobId)) {
+    response.status(404).json({ error: "Job not found." });
+    return;
+  }
+
+  const result = await postDestinationForJob(jobId, platform, "case");
+  response.status(result.ok ? 200 : 424).json({ job: result.job });
 }));
 
 app.get("/api/mappings", asyncHandler(async (_request, response) => {
@@ -887,16 +1101,29 @@ app.post("/api/fill/jobs/:jobId/status", asyncHandler(async (request, response) 
 
   const message = optionalString(request.body.message) ?? `Qoyod fill status changed to ${status}.`;
   const now = new Date().toISOString();
+  const qoyodDraftReference = optionalString(request.body.qoyodDraftReference);
+  const errorCode = optionalString(request.body.errorCode);
   const job = await jobStore.update(current.jobId, {
     status: status as IntakeJob["status"],
     fill: {
       method: "chrome_extension",
       status: status === "draft_saved" ? "draft_saved" : status === "error" ? "error" : status === "ready_for_qoyod" ? "cancelled" : "filling",
-      errorCode: optionalString(request.body.errorCode),
-      qoyodDraftReference: optionalString(request.body.qoyodDraftReference),
+      errorCode,
+      qoyodDraftReference,
       claimedAt: current.fill?.claimedAt,
       updatedAt: now
     },
+    destinations: upsertDestinationState(current.destinations, {
+      platform: "qoyod",
+      status: status === "draft_saved" ? "draft_created" : status === "error" ? "error" : status === "ready_for_qoyod" ? "cancelled" : "posting",
+      externalReference: qoyodDraftReference,
+      errorCode: status === "error" ? errorCode ?? "qoyod_fill_failed" : undefined,
+      errorMessage: status === "error" ? message : undefined,
+      requestedAt: current.destinations?.find((destination) => destination.platform === "qoyod")?.requestedAt,
+      startedAt: current.destinations?.find((destination) => destination.platform === "qoyod")?.startedAt,
+      completedAt: status === "draft_saved" ? now : undefined,
+      updatedAt: now
+    }),
     events: [
       ...current.events,
       {
@@ -953,17 +1180,30 @@ app.post("/api/robot/jobs/:jobId/status", asyncHandler(async (request, response)
     : `Robot status changed to ${status}.`;
   const level: JobEvent["level"] = status === "error" ? "error" : "info";
   const robotJobKey = typeof request.body.robotJobKey === "string" ? request.body.robotJobKey : current.robotJobKey;
+  const qoyodDraftReference = optionalString(request.body.qoyodDraftReference);
+  const errorCode = optionalString(request.body.errorCode);
   const job = await jobStore.update(current.jobId, {
     status: status as IntakeJob["status"],
     robotJobKey,
     fill: {
       method: "chrome_extension",
       status: status === "draft_saved" ? "draft_saved" : status === "error" ? "error" : "filling",
-      errorCode: optionalString(request.body.errorCode),
-      qoyodDraftReference: optionalString(request.body.qoyodDraftReference),
+      errorCode,
+      qoyodDraftReference,
       claimedAt: current.fill?.claimedAt,
       updatedAt: new Date().toISOString()
     },
+    destinations: upsertDestinationState(current.destinations, {
+      platform: "qoyod",
+      status: status === "draft_saved" ? "draft_created" : status === "error" ? "error" : "posting",
+      externalReference: qoyodDraftReference,
+      errorCode: status === "error" ? errorCode ?? "qoyod_fill_failed" : undefined,
+      errorMessage: status === "error" ? message : undefined,
+      requestedAt: current.destinations?.find((destination) => destination.platform === "qoyod")?.requestedAt,
+      startedAt: current.destinations?.find((destination) => destination.platform === "qoyod")?.startedAt,
+      completedAt: status === "draft_saved" ? new Date().toISOString() : undefined,
+      updatedAt: new Date().toISOString()
+    }),
     events: [
       ...current.events,
       {
@@ -1062,24 +1302,8 @@ app.post("/api/jobs/:jobId/review", asyncHandler(async (request, response) => {
 
   const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
-  const reviewedStatus = validation.canSubmitToRobot ? "ready_for_qoyod" : "needs_review";
   const job = await jobStore.update(current.jobId, {
-    status: reviewedStatus,
-    fill: validation.canSubmitToRobot ? {
-      method: "chrome_extension",
-      status: "ready",
-      updatedAt: new Date().toISOString()
-    } : current.fill,
-    draft,
-    validation,
-    events: [
-      ...current.events,
-      {
-        at: new Date().toISOString(),
-        level: validation.canSubmitToRobot ? "info" : "warning",
-        message: validation.canSubmitToRobot ? "Review complete. Draft is ready for the Qoyod Chrome extension." : "Review saved with blocking checks."
-      }
-    ]
+    ...reviewPatch(current, draft, validation, destinationPlatformsFromBody(request.body))
   });
 
   response.json({ job });
@@ -1097,35 +1321,46 @@ app.post("/api/case/jobs/:jobId/review", asyncHandler(async (request, response) 
   const draft = normalizeInvoiceDraft(invoiceDraftSchema.parse(request.body.draft));
   const validation = reconcileDraft(draft);
   const reviewDecision = String(request.body.reviewDecision ?? "save").toLowerCase();
-  const status: IntakeJob["status"] = ["reject", "rejected"].includes(reviewDecision)
-    ? "rejected"
-    : validation.canSubmitToRobot && ["approve", "approve_for_qoyod", "ready_for_robot"].includes(reviewDecision)
-      ? "ready_for_qoyod"
-      : "needs_review";
-  const job = await jobStore.update(current.jobId, {
-    ...casePatchFromBody(request.body),
-    caseStage: "Finance Review And Mapping",
-    status,
-    fill: status === "ready_for_qoyod" ? {
-      method: "chrome_extension",
-      status: "ready",
-      updatedAt: new Date().toISOString()
-    } : current.fill,
-    draft,
-    validation,
-    events: [
-      ...current.events,
-      {
-        at: new Date().toISOString(),
-        level: status === "ready_for_qoyod" ? "info" : status === "rejected" ? "warning" : "warning",
-        message: status === "ready_for_qoyod"
-          ? "Maestro Case review approved the draft for the Qoyod Chrome extension."
-          : status === "rejected"
-            ? "Maestro Case review rejected the invoice."
-            : "Maestro Case review saved with blocking checks or incomplete mapping."
+  const rejected = ["reject", "rejected"].includes(reviewDecision);
+  const approved = ["approve", "approve_for_qoyod", "ready_for_robot", "approve_for_erpnext", "ready_for_erpnext", "approve_for_all", "ready_for_all"].includes(reviewDecision);
+  const patch = rejected
+    ? {
+      ...casePatchFromBody(request.body),
+      caseStage: "Finance Review And Mapping",
+      status: "rejected" as const,
+      draft,
+      validation,
+      events: [
+        ...current.events,
+        {
+          at: new Date().toISOString(),
+          level: "warning" as const,
+          message: "Maestro Case review rejected the invoice."
+        }
+      ]
+    }
+    : approved
+      ? {
+        ...casePatchFromBody(request.body),
+        caseStage: "Finance Review And Mapping",
+        ...reviewPatch(current, draft, validation, destinationsForDecision(request.body), "Maestro Case review approved.")
       }
-    ]
-  });
+      : {
+        ...casePatchFromBody(request.body),
+        caseStage: "Finance Review And Mapping",
+        status: "needs_review" as const,
+        draft,
+        validation,
+        events: [
+          ...current.events,
+          {
+            at: new Date().toISOString(),
+            level: "warning" as const,
+            message: "Maestro Case review saved with blocking checks or incomplete mapping."
+          }
+        ]
+      };
+  const job = await jobStore.update(current.jobId, patch);
 
   response.json({ job });
 }));

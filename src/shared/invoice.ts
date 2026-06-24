@@ -5,10 +5,14 @@ export const jobStatuses = [
   "queued",
   "extracting",
   "needs_review",
+  "reviewed",
   "ready_for_qoyod",
   "qoyod_filling",
   "ready_for_robot",
   "robot_running",
+  "posting",
+  "posted",
+  "posting_error",
   "draft_saved",
   "rejected",
   "error"
@@ -18,8 +22,12 @@ export const batchStatuses = [
   "open",
   "processing",
   "needs_review",
+  "reviewed",
   "ready_for_qoyod",
   "qoyod_filling",
+  "posting",
+  "posted",
+  "posting_error",
   "draft_saved",
   "mixed",
   "error",
@@ -30,6 +38,7 @@ export const caseStages = [
   "Capture Intake",
   "Extraction And Reconciliation",
   "Finance Review And Mapping",
+  "Destination Posting",
   "Qoyod Drafting",
   "Exception Resolution",
   "Closed"
@@ -48,6 +57,8 @@ export const caseStatuses = [
 export const extractionProviderSchema = z.enum(["openai", "deepseek", "external", "mock", "manual"]);
 export const caseStageSchema = z.enum(caseStages);
 export const caseStatusSchema = z.enum(caseStatuses);
+export const destinationPlatformSchema = z.enum(["qoyod", "erpnext"]);
+export const destinationStatusSchema = z.enum(["ready", "posting", "draft_created", "submitted", "error", "cancelled"]);
 
 export const extractionMetadataSchema = z.object({
   provider: extractionProviderSchema,
@@ -63,6 +74,21 @@ export const fillMetadataSchema = z.object({
   qoyodDraftReference: z.string().optional(),
   claimedAt: z.string().optional(),
   updatedAt: z.string().optional()
+});
+
+export const destinationStateSchema = z.object({
+  platform: destinationPlatformSchema,
+  status: destinationStatusSchema,
+  externalReference: z.string().optional(),
+  externalUrl: z.string().optional(),
+  attachmentName: z.string().optional(),
+  attachmentUrl: z.string().optional(),
+  errorCode: z.string().optional(),
+  errorMessage: z.string().optional(),
+  requestedAt: z.string().optional(),
+  startedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  updatedAt: z.string()
 });
 
 export const mappingSchema = z.object({
@@ -175,6 +201,7 @@ export const intakeJobSchema = z.object({
   caseStage: z.string().optional(),
   extraction: extractionMetadataSchema.optional(),
   fill: fillMetadataSchema.optional(),
+  destinations: z.array(destinationStateSchema).default([]),
   batchId: z.string().optional(),
   batchSequence: z.number().int().nonnegative().optional(),
   sourceFileName: z.string().optional(),
@@ -224,8 +251,11 @@ export type JobStatus = (typeof jobStatuses)[number];
 export type BatchStatus = (typeof batchStatuses)[number];
 export type CaseStage = (typeof caseStages)[number];
 export type CaseStatus = (typeof caseStatuses)[number];
+export type DestinationPlatform = z.infer<typeof destinationPlatformSchema>;
+export type DestinationStatus = z.infer<typeof destinationStatusSchema>;
 export type ExtractionMetadata = z.infer<typeof extractionMetadataSchema>;
 export type FillMetadata = z.infer<typeof fillMetadataSchema>;
+export type DestinationState = z.infer<typeof destinationStateSchema>;
 export type QoyodMapping = z.infer<typeof mappingSchema>;
 export type QoyodMappingRule = z.infer<typeof mappingRuleSchema>;
 export type InvoiceLineItem = z.infer<typeof lineItemSchema>;
@@ -307,13 +337,51 @@ export function duplicateKeyForDraft(draft: InvoiceDraft): string | undefined {
   return `${taxId}:${invoiceNumber}`;
 }
 
+export function destinationLabel(platform: DestinationPlatform): string {
+  return platform === "erpnext" ? "ERPNext" : "Qoyod";
+}
+
+export function upsertDestinationState(
+  destinations: DestinationState[] | undefined,
+  next: DestinationState
+): DestinationState[] {
+  const current = destinations ?? [];
+  const index = current.findIndex((destination) => destination.platform === next.platform);
+  if (index === -1) return [...current, next];
+  return current.map((destination, currentIndex) => currentIndex === index ? { ...destination, ...next } : destination);
+}
+
+export function normalizeDestinationPlatforms(
+  platforms: unknown,
+  fallback: DestinationPlatform[] = ["qoyod"]
+): DestinationPlatform[] {
+  const raw = Array.isArray(platforms)
+    ? platforms
+    : typeof platforms === "string"
+      ? platforms.split(",")
+      : fallback;
+  const unique = new Set<DestinationPlatform>();
+  for (const platform of raw) {
+    const normalized = String(platform).trim().toLowerCase();
+    if (destinationPlatformSchema.safeParse(normalized).success) {
+      unique.add(normalized as DestinationPlatform);
+    }
+  }
+  return unique.size ? Array.from(unique) : fallback;
+}
+
 export function batchStatusFromJobs(jobs: IntakeJob[]): BatchStatus {
   if (!jobs.length) return "open";
+  if (jobs.every((job) => job.status === "posted")) return "posted";
   if (jobs.every((job) => job.status === "draft_saved")) return "draft_saved";
+  if (jobs.every((job) => job.status === "posted" || job.status === "draft_saved")) return "posted";
+  if (jobs.some((job) => job.status === "posting_error")) return "posting_error";
   if (jobs.some((job) => job.status === "error")) return "error";
+  if (jobs.some((job) => job.status === "posting")) return "posting";
   if (jobs.some((job) => job.status === "qoyod_filling" || job.status === "robot_running")) return "qoyod_filling";
   if (jobs.some((job) => job.status === "extracting" || job.status === "queued" || job.status === "uploaded")) return "processing";
   if (jobs.every((job) => job.status === "ready_for_qoyod" || job.status === "ready_for_robot")) return "ready_for_qoyod";
+  if (jobs.every((job) => job.status === "reviewed")) return "reviewed";
   if (jobs.some((job) => job.status === "needs_review")) return "needs_review";
   return "mixed";
 }
@@ -321,7 +389,8 @@ export function batchStatusFromJobs(jobs: IntakeJob[]): BatchStatus {
 export function caseStageFromBatchStatus(status: BatchStatus): CaseStage {
   if (status === "open" || status === "processing") return "Extraction And Reconciliation";
   if (status === "needs_review" || status === "mixed") return "Finance Review And Mapping";
+  if (status === "reviewed" || status === "posting") return "Destination Posting";
   if (status === "ready_for_qoyod" || status === "qoyod_filling") return "Qoyod Drafting";
-  if (status === "error") return "Exception Resolution";
+  if (status === "error" || status === "posting_error") return "Exception Resolution";
   return "Closed";
 }
