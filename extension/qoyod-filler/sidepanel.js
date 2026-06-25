@@ -6,6 +6,10 @@ const DEFAULT_CONFIG = {
   currentJob: null
 };
 
+const LOCAL_QOYOD_HOSTS = new Set(["localhost:5174", "127.0.0.1:5174"]);
+const QOYOD_HOST_PATTERN = /(^|\.)qoyod\.com$/i;
+const RECEIVER_ERROR_PATTERN = /Could not establish connection|Receiving end does not exist/i;
+
 const fields = {
   status: document.getElementById("status"),
   apiBaseUrl: document.getElementById("apiBaseUrl"),
@@ -117,30 +121,38 @@ async function claimNext() {
 
 async function calibrate() {
   await saveConfig();
-  const tab = await activeTab();
-  if (!tab?.id) return note("Open Qoyod in the active tab first.");
-
-  const response = await chrome.tabs.sendMessage(tab.id, {
-    type: "QOYOD_START_CALIBRATION",
-    qoyodBaseUrl: state.qoyodBaseUrl
-  });
-  note(response?.message || "Calibration started.");
+  setBusy(true, "Connecting");
+  try {
+    const tab = await connectedQoyodTab();
+    fields.status.textContent = "Calibrating";
+    const response = await sendQoyodMessage(tab.id, {
+      type: "QOYOD_START_CALIBRATION",
+      qoyodBaseUrl: state.qoyodBaseUrl
+    });
+    if (!response?.ok) {
+      throw codedError(response?.error || "Calibration failed.", response?.errorCode || "selector_calibration_failed");
+    }
+    note(response.message || "Calibration started.");
+  } catch (error) {
+    note(error.message);
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function fillCurrentPage() {
   if (!state.currentJob) return note("Claim a job first.");
   await saveConfig();
-  const tab = await activeTab();
-  if (!tab?.id) return note("Open Qoyod in the active tab first.");
 
   setBusy(true, "Filling");
   try {
+    const tab = await connectedQoyodTab();
     await api(`/api/fill/jobs/${state.currentJob.jobId}/status`, {
       method: "POST",
       body: JSON.stringify({ status: "qoyod_filling", message: "Chrome extension side panel started filling Qoyod." })
     });
 
-    const response = await chrome.tabs.sendMessage(tab.id, {
+    const response = await sendQoyodMessage(tab.id, {
       type: "QOYOD_FILL_JOB",
       job: state.currentJob,
       config: {
@@ -151,11 +163,15 @@ async function fillCurrentPage() {
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || "Qoyod fill failed.");
+      throw codedError(response?.error || "Qoyod fill failed.", response?.errorCode || "selector_failure");
     }
     note(response.message || "Page filled. Review before saving draft.");
   } catch (error) {
-    await reportError(error.message, "selector_failure");
+    if (isConnectionOnlyError(error)) {
+      note(error.message);
+    } else {
+      await reportError(error.message, error.errorCode || "selector_failure");
+    }
   } finally {
     setBusy(false);
   }
@@ -163,29 +179,39 @@ async function fillCurrentPage() {
 
 async function saveDraft() {
   if (!state.currentJob) return note("Claim a job first.");
-  const tab = await activeTab();
-  if (!tab?.id) return note("Open Qoyod in the active tab first.");
+  setBusy(true, "Saving");
+  try {
+    const tab = await connectedQoyodTab();
 
-  const response = await chrome.tabs.sendMessage(tab.id, { type: "QOYOD_SAVE_DRAFT" });
-  if (!response?.ok) {
-    await reportError(response?.error || "Draft save was cancelled.", response?.errorCode || "save_cancelled");
-    return;
+    const response = await sendQoyodMessage(tab.id, { type: "QOYOD_SAVE_DRAFT" });
+    if (!response?.ok) {
+      await reportError(response?.error || "Draft save was cancelled.", response?.errorCode || "save_cancelled");
+      return;
+    }
+
+    const body = await api(`/api/fill/jobs/${state.currentJob.jobId}/status`, {
+      method: "POST",
+      body: JSON.stringify({
+        status: "draft_saved",
+        qoyodDraftReference: response.reference || "",
+        message: response.reference
+          ? `Qoyod draft saved with reference ${response.reference}.`
+          : "Qoyod draft save clicked; verify the draft in Qoyod."
+      })
+    });
+    state.currentJob = null;
+    await chrome.storage.local.set({ currentJob: null });
+    renderJob(null);
+    note(`Saved: ${body.job.status}.`);
+  } catch (error) {
+    if (isConnectionOnlyError(error)) {
+      note(error.message);
+    } else {
+      await reportError(error.message, error.errorCode || "save_failed");
+    }
+  } finally {
+    setBusy(false);
   }
-
-  const body = await api(`/api/fill/jobs/${state.currentJob.jobId}/status`, {
-    method: "POST",
-    body: JSON.stringify({
-      status: "draft_saved",
-      qoyodDraftReference: response.reference || "",
-      message: response.reference
-        ? `Qoyod draft saved with reference ${response.reference}.`
-        : "Qoyod draft save clicked; verify the draft in Qoyod."
-    })
-  });
-  state.currentJob = null;
-  await chrome.storage.local.set({ currentJob: null });
-  renderJob(null);
-  note(`Saved: ${body.job.status}.`);
 }
 
 async function cancelJob() {
@@ -231,6 +257,82 @@ async function api(path, options = {}) {
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
+}
+
+async function connectedQoyodTab() {
+  const tab = await activeTab();
+  if (!tab?.id) {
+    throw codedError("Open a supported Qoyod bill page in the active tab first.", "qoyod_page_not_connected");
+  }
+  if (!isSupportedQoyodUrl(tab.url)) {
+    throw codedError("Open a supported Qoyod bill page first: Qoyod HTTPS, localhost:5174, or 127.0.0.1:5174.", "qoyod_page_unsupported");
+  }
+
+  try {
+    const response = await sendQoyodMessage(tab.id, { type: "QOYOD_PING", qoyodBaseUrl: state.qoyodBaseUrl });
+    if (!response?.ok) {
+      throw codedError(response?.error || "Qoyod page is not ready.", response?.errorCode || "qoyod_page_not_connected");
+    }
+    return tab;
+  } catch (error) {
+    if (!RECEIVER_ERROR_PATTERN.test(error.message)) throw error;
+  }
+
+  note(`Connecting to ${new URL(tab.url).host}...`);
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content.js"]
+    });
+  } catch (error) {
+    throw codedError(`Could not connect to the Qoyod page: ${friendlyError(error)}`, "qoyod_page_not_connected");
+  }
+
+  await wait(100);
+  const response = await sendQoyodMessage(tab.id, { type: "QOYOD_PING", qoyodBaseUrl: state.qoyodBaseUrl });
+  if (!response?.ok) {
+    throw codedError(response?.error || "Qoyod page is not ready.", response?.errorCode || "qoyod_page_not_connected");
+  }
+  return tab;
+}
+
+async function sendQoyodMessage(tabId, message) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    throw codedError(`Qoyod page is not connected: ${friendlyError(error)}`, "qoyod_page_not_connected");
+  }
+}
+
+function isSupportedQoyodUrl(urlValue) {
+  if (!urlValue) return false;
+  try {
+    const url = new URL(urlValue);
+    return (
+      (url.protocol === "https:" && QOYOD_HOST_PATTERN.test(url.hostname)) ||
+      (url.protocol === "http:" && LOCAL_QOYOD_HOSTS.has(url.host))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function codedError(message, errorCode) {
+  const error = new Error(message);
+  error.errorCode = errorCode;
+  return error;
+}
+
+function friendlyError(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isConnectionOnlyError(error) {
+  return error?.errorCode === "qoyod_page_not_connected" || error?.errorCode === "qoyod_page_unsupported";
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function renderJob(job) {

@@ -24,6 +24,7 @@ In the side panel:
 ## Calibrate
 
 Calibration is needed once per Qoyod form layout, and again if Qoyod changes the page.
+After extension updates that add new Qoyod fields, recalibrate once so the saved selector profile has the full New Bill form.
 
 1. Log into Qoyod in Chrome.
 2. Open the purchase/simple bill draft form.
@@ -32,6 +33,8 @@ Calibration is needed once per Qoyod form layout, and again if Qoyod changes the
 5. Press Escape to skip optional fields such as attachment upload.
 
 Selectors are stored in `chrome.storage.local`.
+
+The New Bill calibration covers Reference, Bill Description, Vendor, Issue/Due/Supply dates, line mapping, line description, quantity, unit price, VAT, Add More, attachment controls, and Save Draft. The extension fills Supply Date with the Issue Date for now and never clicks Save and Approve.
 
 ## Fill Flow
 

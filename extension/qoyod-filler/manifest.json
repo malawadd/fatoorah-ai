@@ -8,6 +8,8 @@
   "host_permissions": [
     "http://localhost:8787/*",
     "http://127.0.0.1:8787/*",
+    "http://localhost:5174/*",
+    "http://127.0.0.1:5174/*",
     "https://*/*",
     "https://qoyod.com/*",
     "https://*.qoyod.com/*"
@@ -23,7 +25,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://qoyod.com/*", "https://*.qoyod.com/*"],
+      "matches": [
+        "https://qoyod.com/*",
+        "https://*.qoyod.com/*",
+        "http://localhost:5174/*",
+        "http://127.0.0.1:5174/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
