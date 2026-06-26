@@ -1,0 +1,239 @@
+{
+  "document": {
+    "dsl": "1.0.0",
+    "name": "QoyodCaseStartAndWaitExtraction",
+    "version": "0.1.0",
+    "namespace": "qoyod.invoiceIntake.case",
+    "metadata": {
+      "variables": {
+        "schema": {
+          "format": "json",
+          "document": {
+            "type": "object",
+            "properties": {
+              "decision": { "type": "object", "default": {} },
+              "attempt": { "type": "number", "default": 0 },
+              "done": { "type": "boolean", "default": false }
+            },
+            "title": "Variables"
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "schema": {
+      "format": "json",
+      "document": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": { "type": "string" },
+          "caseCallbackToken": { "type": "string" },
+          "batchId": { "type": "string" },
+          "caseJobKey": { "type": "string" },
+          "caseInstanceId": { "type": "string" },
+          "waitSeconds": { "type": "number" },
+          "maxAttempts": { "type": "number" }
+        },
+        "required": ["apiBaseUrl", "batchId"],
+        "title": "Inputs"
+      }
+    }
+  },
+  "output": {
+    "schema": {
+      "format": "json",
+      "document": {
+        "type": "object",
+        "properties": {
+          "caseStage": { "type": "string" },
+          "caseStatus": { "type": "string" },
+          "taskStatus": { "type": "string" },
+          "invoiceDraft": { "type": "object" },
+          "validationResult": { "type": "object" },
+          "errorCode": { "type": "string" },
+          "reviewUrl": { "type": "string" }
+        },
+        "title": "Outputs"
+      }
+    }
+  },
+  "do": [
+    {
+      "Sequence_1": {
+        "do": [
+          {
+            "WorkflowStart": {
+              "set": "${Object.entries($workflow.definition?.document?.metadata?.variables?.schema?.document?.properties || {}).reduce((acc, [name, def]) => ({ ...acc, [name]: def?.default }), {}) }",
+              "output": { "as": "${$input}" },
+              "export": { "as": "{ ...$context, variables: { ...$context.variables, ...$output } }" },
+              "metadata": { "activityType": "Assign", "displayName": "Workflow start", "fullName": "Assign", "isTransparent": true }
+            }
+          },
+          {
+            "HttpRequest_StartExtraction": {
+              "call": "UiPath.Http",
+              "with": {
+                "connector": "uipath-uipath-http",
+                "connectionId": "ImplicitConnection",
+                "connectionResourceId": "ImplicitConnection",
+                "method": "POST",
+                "endpoint": "/http-request",
+                "bodyParameters": {
+                  "authentication": "manual",
+                  "method": "POST",
+                  "url": "${$workflow.input.apiBaseUrl + '/api/case/batches/' + $workflow.input.batchId + '/extraction/start'}",
+                  "headers": {
+                    "content-type": "application/json",
+                    "x-case-token": "${$workflow.input.caseCallbackToken || ''}"
+                  },
+                  "body": {
+                    "workflowName": "StartAndWaitExtraction",
+                    "taskName": "Start And Wait Extraction",
+                    "taskStatus": "started",
+                    "caseStage": "Extraction And Reconciliation",
+                    "caseStatus": "active",
+                    "caseJobKey": "${$workflow.input.caseJobKey || ''}",
+                    "caseInstanceId": "${$workflow.input.caseInstanceId || ''}"
+                  }
+                }
+              },
+              "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"start_extraction_response\": $output } }" },
+              "metadata": {
+                "fullName": "Connector",
+                "activityType": "Connector",
+                "displayName": "Start Batch Extraction",
+                "uiPathActivityTypeId": "5c4cc855-b42a-37e6-b910-de8588998fce",
+                "assemblyQualifiedName": "Connector",
+                "configuration": "{\"essentialConfiguration\":{\"connectorVersion\":\"\",\"executionType\":null,\"customFieldsRequestDetails\":null,\"instanceParameters\":{\"version\":\"1.0.0\",\"connectorKey\":\"uipath-uipath-http\",\"activityType\":\"Curated\",\"objectName\":\"http-request\",\"httpMethod\":\"POST\",\"operation\":null,\"eventOperation\":null,\"eventMode\":null,\"connectorObjects\":null,\"previewEndpoint\":null},\"objectName\":\"http-request\",\"operation\":null,\"packageVersion\":\"1.0.0\",\"httpMethod\":\"POST\",\"path\":\"/http-request\",\"unifiedTypesCompatible\":true,\"savedJitInputFieldId\":\"in_http-request\"}}"
+              }
+            }
+          },
+          {
+            "Do_While_Extraction": {
+              "for": { "in": "${ [1] }" },
+              "doWhile": "${!$context.variables.done && $context.variables.attempt < ($workflow.input.maxAttempts || 60)}",
+              "do": [
+                {
+                  "Do_While_Extraction#Body": {
+                    "do": [
+                      {
+                        "Wait_Extraction": {
+                          "wait": { "minutes": 0, "seconds": 10, "milliseconds": 0 },
+                          "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"Wait_Extraction\": $output } }" },
+                          "metadata": { "activityType": "Wait", "displayName": "Wait For Extraction", "fullName": "Wait" }
+                        }
+                      },
+                      {
+                        "HttpRequest_GetProgress": {
+                          "call": "UiPath.Http",
+                          "with": {
+                            "connector": "uipath-uipath-http",
+                            "connectionId": "ImplicitConnection",
+                            "connectionResourceId": "ImplicitConnection",
+                            "method": "POST",
+                            "endpoint": "/http-request",
+                            "bodyParameters": {
+                              "authentication": "manual",
+                              "method": "GET",
+                              "url": "${$workflow.input.apiBaseUrl + '/api/case/batches/' + $workflow.input.batchId + '/progress'}",
+                              "headers": {
+                                "x-case-token": "${$workflow.input.caseCallbackToken || ''}"
+                              }
+                            }
+                          },
+                          "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"progress_response\": $output } }" },
+                          "metadata": {
+                            "fullName": "Connector",
+                            "activityType": "Connector",
+                            "displayName": "Get Batch Progress",
+                            "uiPathActivityTypeId": "5c4cc855-b42a-37e6-b910-de8588998fce",
+                            "assemblyQualifiedName": "Connector",
+                            "configuration": "{\"essentialConfiguration\":{\"connectorVersion\":\"\",\"executionType\":null,\"customFieldsRequestDetails\":null,\"instanceParameters\":{\"version\":\"1.0.0\",\"connectorKey\":\"uipath-uipath-http\",\"activityType\":\"Curated\",\"objectName\":\"http-request\",\"httpMethod\":\"POST\",\"operation\":null,\"eventOperation\":null,\"eventMode\":null,\"connectorObjects\":null,\"previewEndpoint\":null},\"objectName\":\"http-request\",\"operation\":null,\"packageVersion\":\"1.0.0\",\"httpMethod\":\"POST\",\"path\":\"/http-request\",\"unifiedTypesCompatible\":true,\"savedJitInputFieldId\":\"in_http-request\"}}"
+                          }
+                        }
+                      },
+                      {
+                        "Javascript_DecideExtraction": {
+                          "run": {
+                            "script": {
+                              "code": "const response = $context.outputs.progress_response || {}; const body = response.content || response.body || response; const progress = body.progress || body; const error = progress.flags?.hasErrors === true; const complete = progress.flags?.extractionComplete === true; const attempt = ($context.variables.attempt || 0) + 1; const max = Number($workflow.input.maxAttempts || 60); const timedOut = !error && !complete && attempt >= max; return { progress, attempt, done: error || complete || timedOut, caseStage: (error || timedOut) ? 'Exception Resolution' : progress.nextStage, caseStatus: (error || timedOut) ? 'exception' : 'active', taskStatus: (error || timedOut) ? 'failed' : complete ? 'completed' : 'waiting', callbackPath: (error || timedOut) ? '/api/case/batches/' + $workflow.input.batchId + '/exception' : '/api/case/batches/' + $workflow.input.batchId + '/stage', errorCode: error ? (progress.errorCode || 'case_extraction_error') : timedOut ? 'extraction_timeout' : '', errorMessage: error ? (progress.errorMessage || 'Extraction failed.') : timedOut ? 'Extraction did not complete before the Maestro polling limit.' : '', invoiceDraft: progress.firstJob?.draft || {}, validationResult: progress.firstJob?.validation || {}, reviewUrl: progress.reviewUrl || '' };",
+                              "language": "javascript",
+                              "arguments": "${{ \"$context\": $context, \"$workflow\": $workflow, \"$input\": $input }}"
+                            }
+                          },
+                          "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"extraction_decision\": $output } }" },
+                          "metadata": { "activityType": "JsInvoke", "displayName": "Decide Extraction Progress", "fullName": "JsInvoke" }
+                        }
+                      },
+                      {
+                        "Assign_Decision": {
+                          "set": { "decision": "${$context.outputs.extraction_decision}", "attempt": "${$context.outputs.extraction_decision.attempt}", "done": "${$context.outputs.extraction_decision.done}" },
+                          "export": { "as": "{ ...$context, variables: { ...$context.variables, ...$output } }" },
+                          "metadata": { "activityType": "Assign", "displayName": "Store Extraction Decision", "fullName": "Assign", "isTransparent": false }
+                        }
+                      }
+                    ],
+                    "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"Do_While_Extraction\": { ...$context?.outputs?.Do_While_Extraction, results: [ ...($context?.outputs?.Do_While_Extraction?.results ?? []), ...([$output] ?? []) ] } } }" }
+                  }
+                }
+              ],
+              "output": { "as": "${$context.outputs.Do_While_Extraction}" },
+              "metadata": { "activityType": "DoWhile", "displayName": "Poll Extraction Progress", "fullName": "DoWhile" }
+            }
+          },
+          {
+            "HttpRequest_SyncExtractionStage": {
+              "call": "UiPath.Http",
+              "with": {
+                "connector": "uipath-uipath-http",
+                "connectionId": "ImplicitConnection",
+                "connectionResourceId": "ImplicitConnection",
+                "method": "POST",
+                "endpoint": "/http-request",
+                "bodyParameters": {
+                  "authentication": "manual",
+                  "method": "POST",
+                  "url": "${$workflow.input.apiBaseUrl + $context.variables.decision.callbackPath}",
+                  "headers": {
+                    "content-type": "application/json",
+                    "x-case-token": "${$workflow.input.caseCallbackToken || ''}"
+                  },
+                  "body": {
+                    "workflowName": "StartAndWaitExtraction",
+                    "taskName": "Start And Wait Extraction",
+                    "taskStatus": "${$context.variables.decision.taskStatus}",
+                    "caseStage": "${$context.variables.decision.caseStage}",
+                    "caseStatus": "${$context.variables.decision.caseStatus}",
+                    "errorCode": "${$context.variables.decision.errorCode}",
+                    "message": "${$context.variables.decision.errorMessage || 'Maestro extraction workflow synchronized batch progress.'}"
+                  }
+                }
+              },
+              "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"sync_extraction_response\": $output } }" },
+              "metadata": {
+                "fullName": "Connector",
+                "activityType": "Connector",
+                "displayName": "Sync Extraction Stage",
+                "uiPathActivityTypeId": "5c4cc855-b42a-37e6-b910-de8588998fce",
+                "assemblyQualifiedName": "Connector",
+                "configuration": "{\"essentialConfiguration\":{\"connectorVersion\":\"\",\"executionType\":null,\"customFieldsRequestDetails\":null,\"instanceParameters\":{\"version\":\"1.0.0\",\"connectorKey\":\"uipath-uipath-http\",\"activityType\":\"Curated\",\"objectName\":\"http-request\",\"httpMethod\":\"POST\",\"operation\":null,\"eventOperation\":null,\"eventMode\":null,\"connectorObjects\":null,\"previewEndpoint\":null},\"objectName\":\"http-request\",\"operation\":null,\"packageVersion\":\"1.0.0\",\"httpMethod\":\"POST\",\"path\":\"/http-request\",\"unifiedTypesCompatible\":true,\"savedJitInputFieldId\":\"in_http-request\"}}"
+              }
+            }
+          },
+          {
+            "Response_1": {
+              "response": "${{ caseStage: $context.variables.decision.caseStage, caseStatus: $context.variables.decision.caseStatus, taskStatus: $context.variables.decision.taskStatus, invoiceDraft: $context.variables.decision.invoiceDraft, validationResult: $context.variables.decision.validationResult, errorCode: $context.variables.decision.errorCode, reviewUrl: $context.variables.decision.reviewUrl }}",
+              "markJobAsFailed": false,
+              "then": "end",
+              "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"Response_1\": $output } }" },
+              "metadata": { "activityType": "Response", "displayName": "Response", "fullName": "Response" }
+            }
+          }
+        ],
+        "metadata": { "activityType": "Sequence", "displayName": "Sequence", "fullName": "Sequence" }
+      }
+    }
+  ],
+  "evaluate": { "mode": "strict", "language": "javascript" }
+}

@@ -1,0 +1,23 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCaseWaitForQoyodExtensionDraft",
+    "kind": "package",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "ad39823a-0e1f-4113-af84-0ff5296091c2",
+    "isOverridable": true,
+    "dependencies": [],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "name": "QoyodCaseWaitForQoyodExtensionDraft"
+    },
+    "locks": [],
+    "key": "2ca9323f-601a-4b01-a78b-ab8967f895e0",
+    "files": []
+  }
+}

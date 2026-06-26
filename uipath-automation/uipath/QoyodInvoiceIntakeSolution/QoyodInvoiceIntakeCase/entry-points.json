@@ -9,6 +9,24 @@
       "input": {
         "type": "object",
         "properties": {
+          "batchId": {
+            "type": "string"
+          },
+          "batchName": {
+            "type": "string"
+          },
+          "invoiceCount": {
+            "type": "number"
+          },
+          "jobIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "firstJobId": {
+            "type": "string"
+          },
           "jobId": {
             "type": "string"
           },
@@ -24,14 +42,45 @@
           "attachmentMimeType": {
             "type": "string"
           },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
           "qrTlv": {
             "type": "object",
             "additionalProperties": true
+          },
+          "qrTlvByJob": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "webAppUrl": {
+            "type": "string"
+          },
+          "caseCallbackToken": {
+            "type": "string"
+          },
+          "caseJobKey": {
+            "type": "string"
+          },
+          "caseInstanceId": {
+            "type": "string"
+          },
+          "maxAttempts": {
+            "type": "number"
+          },
+          "waitSeconds": {
+            "type": "number"
           }
         },
         "required": [
-          "jobId",
-          "bucketPath"
+          "batchId"
         ]
       },
       "output": {

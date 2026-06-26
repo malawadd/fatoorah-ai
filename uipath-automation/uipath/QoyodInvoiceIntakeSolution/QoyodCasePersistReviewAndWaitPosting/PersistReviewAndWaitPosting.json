@@ -1,0 +1,196 @@
+{
+  "document": {
+    "dsl": "1.0.0",
+    "name": "QoyodCasePersistReviewAndWaitPosting",
+    "version": "0.1.0",
+    "namespace": "qoyod.invoiceIntake.case",
+    "metadata": {
+      "variables": {
+        "schema": {
+          "format": "json",
+          "document": {
+            "type": "object",
+            "properties": {
+              "decision": { "type": "object", "default": {} },
+              "attempt": { "type": "number", "default": 0 },
+              "done": { "type": "boolean", "default": false }
+            },
+            "title": "Variables"
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "schema": {
+      "format": "json",
+      "document": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": { "type": "string" },
+          "caseCallbackToken": { "type": "string" },
+          "batchId": { "type": "string" },
+          "caseJobKey": { "type": "string" },
+          "caseInstanceId": { "type": "string" },
+          "maxAttempts": { "type": "number" }
+        },
+        "required": ["apiBaseUrl", "batchId"],
+        "title": "Inputs"
+      }
+    }
+  },
+  "output": {
+    "schema": {
+      "format": "json",
+      "document": {
+        "type": "object",
+        "properties": {
+          "caseStage": { "type": "string" },
+          "caseStatus": { "type": "string" },
+          "taskStatus": { "type": "string" },
+          "qoyodDraftStatus": { "type": "string" },
+          "qoyodDraftReference": { "type": "string" },
+          "errorCode": { "type": "string" }
+        },
+        "title": "Outputs"
+      }
+    }
+  },
+  "do": [
+    {
+      "Sequence_1": {
+        "do": [
+          {
+            "WorkflowStart": {
+              "set": "${Object.entries($workflow.definition?.document?.metadata?.variables?.schema?.document?.properties || {}).reduce((acc, [name, def]) => ({ ...acc, [name]: def?.default }), {}) }",
+              "output": { "as": "${$input}" },
+              "export": { "as": "{ ...$context, variables: { ...$context.variables, ...$output } }" },
+              "metadata": { "activityType": "Assign", "displayName": "Workflow start", "fullName": "Assign", "isTransparent": true }
+            }
+          },
+          {
+            "Do_While_Posting": {
+              "for": { "in": "${ [1] }" },
+              "doWhile": "${!$context.variables.done && $context.variables.attempt < ($workflow.input.maxAttempts || 60)}",
+              "do": [
+                {
+                  "Do_While_Posting#Body": {
+                    "do": [
+                      {
+                        "Wait_Posting": {
+                          "wait": { "minutes": 0, "seconds": 5, "milliseconds": 0 },
+                          "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"Wait_Posting\": $output } }" },
+                          "metadata": { "activityType": "Wait", "displayName": "Wait For Destination Posting", "fullName": "Wait" }
+                        }
+                      },
+                      {
+                        "HttpRequest_GetProgress": {
+                          "call": "UiPath.Http",
+                          "with": {
+                            "connector": "uipath-uipath-http",
+                            "connectionId": "ImplicitConnection",
+                            "connectionResourceId": "ImplicitConnection",
+                            "method": "POST",
+                            "endpoint": "/http-request",
+                            "bodyParameters": {
+                              "authentication": "manual",
+                              "method": "GET",
+                              "url": "${$workflow.input.apiBaseUrl + '/api/case/batches/' + $workflow.input.batchId + '/progress'}",
+                              "headers": { "x-case-token": "${$workflow.input.caseCallbackToken || ''}" }
+                            }
+                          },
+                          "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"posting_progress_response\": $output } }" },
+                          "metadata": {
+                            "fullName": "Connector",
+                            "activityType": "Connector",
+                            "displayName": "Get Destination Progress",
+                            "uiPathActivityTypeId": "5c4cc855-b42a-37e6-b910-de8588998fce",
+                            "assemblyQualifiedName": "Connector",
+                            "configuration": "{\"essentialConfiguration\":{\"connectorVersion\":\"\",\"executionType\":null,\"customFieldsRequestDetails\":null,\"instanceParameters\":{\"version\":\"1.0.0\",\"connectorKey\":\"uipath-uipath-http\",\"activityType\":\"Curated\",\"objectName\":\"http-request\",\"httpMethod\":\"POST\",\"operation\":null,\"eventOperation\":null,\"eventMode\":null,\"connectorObjects\":null,\"previewEndpoint\":null},\"objectName\":\"http-request\",\"operation\":null,\"packageVersion\":\"1.0.0\",\"httpMethod\":\"POST\",\"path\":\"/http-request\",\"unifiedTypesCompatible\":true,\"savedJitInputFieldId\":\"in_http-request\"}}"
+                          }
+                        }
+                      },
+                      {
+                        "Javascript_DecidePosting": {
+                          "run": {
+                            "script": {
+                              "code": "const response = $context.outputs.posting_progress_response || {}; const body = response.content || response.body || response; const progress = body.progress || body; const error = progress.flags?.hasErrors === true; const closed = progress.flags?.closed === true; const readyForQoyod = progress.nextStage === 'Qoyod Drafting'; const postingComplete = progress.flags?.destinationPostingComplete === true; const attempt = ($context.variables.attempt || 0) + 1; const max = Number($workflow.input.maxAttempts || 60); const timedOut = !error && !closed && !readyForQoyod && !postingComplete && attempt >= max; const nextStage = (error || timedOut) ? 'Exception Resolution' : progress.nextStage; return { progress, attempt, done: error || closed || readyForQoyod || postingComplete || timedOut, caseStage: nextStage, caseStatus: (error || timedOut) ? 'exception' : closed ? 'closed' : 'active', taskStatus: (error || timedOut) ? 'failed' : (closed || readyForQoyod || postingComplete) ? 'completed' : 'waiting', callbackPath: (error || timedOut) ? '/api/case/batches/' + $workflow.input.batchId + '/exception' : closed ? '/api/case/batches/' + $workflow.input.batchId + '/close' : '/api/case/batches/' + $workflow.input.batchId + '/stage', errorCode: error ? (progress.errorCode || 'case_destination_error') : timedOut ? 'destination_posting_timeout' : '', errorMessage: error ? (progress.errorMessage || 'Destination posting failed.') : timedOut ? 'Destination posting did not complete before the Maestro polling limit.' : '', qoyodDraftStatus: progress.flags?.qoyodDraftComplete ? 'draft_saved' : progress.flags?.hasQoyod ? 'waiting' : '', qoyodDraftReference: (progress.references?.qoyodDraftReferences || [])[0] || '' };",
+                              "language": "javascript",
+                              "arguments": "${{ \"$context\": $context, \"$workflow\": $workflow, \"$input\": $input }}"
+                            }
+                          },
+                          "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"posting_decision\": $output } }" },
+                          "metadata": { "activityType": "JsInvoke", "displayName": "Decide Destination Posting", "fullName": "JsInvoke" }
+                        }
+                      },
+                      {
+                        "Assign_Decision": {
+                          "set": { "decision": "${$context.outputs.posting_decision}", "attempt": "${$context.outputs.posting_decision.attempt}", "done": "${$context.outputs.posting_decision.done}" },
+                          "export": { "as": "{ ...$context, variables: { ...$context.variables, ...$output } }" },
+                          "metadata": { "activityType": "Assign", "displayName": "Store Posting Decision", "fullName": "Assign", "isTransparent": false }
+                        }
+                      }
+                    ],
+                    "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"Do_While_Posting\": { ...$context?.outputs?.Do_While_Posting, results: [ ...($context?.outputs?.Do_While_Posting?.results ?? []), ...([$output] ?? []) ] } } }" }
+                  }
+                }
+              ],
+              "output": { "as": "${$context.outputs.Do_While_Posting}" },
+              "metadata": { "activityType": "DoWhile", "displayName": "Poll Destination Posting", "fullName": "DoWhile" }
+            }
+          },
+          {
+            "HttpRequest_SyncPostingStage": {
+              "call": "UiPath.Http",
+              "with": {
+                "connector": "uipath-uipath-http",
+                "connectionId": "ImplicitConnection",
+                "connectionResourceId": "ImplicitConnection",
+                "method": "POST",
+                "endpoint": "/http-request",
+                "bodyParameters": {
+                  "authentication": "manual",
+                  "method": "POST",
+                  "url": "${$workflow.input.apiBaseUrl + $context.variables.decision.callbackPath}",
+                  "headers": {
+                    "content-type": "application/json",
+                    "x-case-token": "${$workflow.input.caseCallbackToken || ''}"
+                  },
+                  "body": {
+                    "workflowName": "PersistReviewAndWaitPosting",
+                    "taskName": "Persist Review And Wait Posting",
+                    "taskStatus": "${$context.variables.decision.taskStatus}",
+                    "caseStage": "${$context.variables.decision.caseStage}",
+                    "caseStatus": "${$context.variables.decision.caseStatus}",
+                    "errorCode": "${$context.variables.decision.errorCode}",
+                    "message": "${$context.variables.decision.errorMessage || 'Maestro destination posting workflow synchronized batch progress.'}"
+                  }
+                }
+              },
+              "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"sync_posting_response\": $output } }" },
+              "metadata": {
+                "fullName": "Connector",
+                "activityType": "Connector",
+                "displayName": "Sync Posting Stage",
+                "uiPathActivityTypeId": "5c4cc855-b42a-37e6-b910-de8588998fce",
+                "assemblyQualifiedName": "Connector",
+                "configuration": "{\"essentialConfiguration\":{\"connectorVersion\":\"\",\"executionType\":null,\"customFieldsRequestDetails\":null,\"instanceParameters\":{\"version\":\"1.0.0\",\"connectorKey\":\"uipath-uipath-http\",\"activityType\":\"Curated\",\"objectName\":\"http-request\",\"httpMethod\":\"POST\",\"operation\":null,\"eventOperation\":null,\"eventMode\":null,\"connectorObjects\":null,\"previewEndpoint\":null},\"objectName\":\"http-request\",\"operation\":null,\"packageVersion\":\"1.0.0\",\"httpMethod\":\"POST\",\"path\":\"/http-request\",\"unifiedTypesCompatible\":true,\"savedJitInputFieldId\":\"in_http-request\"}}"
+              }
+            }
+          },
+          {
+            "Response_1": {
+              "response": "${{ caseStage: $context.variables.decision.caseStage, caseStatus: $context.variables.decision.caseStatus, taskStatus: $context.variables.decision.taskStatus, qoyodDraftStatus: $context.variables.decision.qoyodDraftStatus, qoyodDraftReference: $context.variables.decision.qoyodDraftReference, errorCode: $context.variables.decision.errorCode }}",
+              "markJobAsFailed": false,
+              "then": "end",
+              "export": { "as": "{ ...$context, outputs: { ...$context?.outputs, \"Response_1\": $output } }" },
+              "metadata": { "activityType": "Response", "displayName": "Response", "fullName": "Response" }
+            }
+          }
+        ],
+        "metadata": { "activityType": "Sequence", "displayName": "Sequence", "fullName": "Sequence" }
+      }
+    }
+  ],
+  "evaluate": { "mode": "strict", "language": "javascript" }
+}

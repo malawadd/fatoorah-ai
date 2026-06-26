@@ -117,6 +117,10 @@ function destinationsForJob(job: IntakeJob | null): DestinationPlatform[] {
   return platforms.length ? Array.from(new Set(platforms)) : ["qoyod"];
 }
 
+function initialBatchIdFromUrl(): string | undefined {
+  return new URLSearchParams(window.location.search).get("batchId") ?? undefined;
+}
+
 function destinationSummary(job: IntakeJob): string {
   if (!job.destinations?.length) return "Qoyod";
   return job.destinations
@@ -468,8 +472,10 @@ export function App() {
     const [batchList, mappingList] = await Promise.all([listBatches(), listMappings()]);
     setBatches(batchList);
     setMappings(mappingList);
-    if (!currentBatch && batchList[0]) {
-      await refreshBatch(batchList[0].batchId);
+    if (!currentBatch) {
+      const urlBatchId = initialBatchIdFromUrl();
+      const targetBatch = (urlBatchId && batchList.find((batch) => batch.batchId === urlBatchId)) || batchList[0];
+      if (targetBatch) await refreshBatch(targetBatch.batchId);
     }
   }
 
@@ -480,6 +486,7 @@ export function App() {
     const nextJob = details.jobs.find((job) => job.jobId === selectedJobId) ?? details.jobs[0] ?? null;
     setSelectedJobId(nextJob?.jobId ?? "");
     setDraft(nextJob ? normalizeInvoiceDraft(nextJob.draft) : null);
+    window.history.replaceState(null, "", `?batchId=${encodeURIComponent(batchId)}`);
   }
 
   async function startCamera() {

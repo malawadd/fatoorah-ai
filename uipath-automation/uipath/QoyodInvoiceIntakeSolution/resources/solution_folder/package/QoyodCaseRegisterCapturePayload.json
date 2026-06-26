@@ -1,0 +1,23 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCaseRegisterCapturePayload",
+    "kind": "package",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "45247ef7-d6d8-4751-81cd-7ef2ffc5f68a",
+    "isOverridable": true,
+    "dependencies": [],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "name": "QoyodCaseRegisterCapturePayload"
+    },
+    "locks": [],
+    "key": "7dab13fc-6343-4e11-94d8-9aeaa0b419ac",
+    "files": []
+  }
+}

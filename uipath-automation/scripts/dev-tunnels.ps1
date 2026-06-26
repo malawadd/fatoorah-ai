@@ -225,7 +225,9 @@ switch ($Action) {
 
     if (-not $NoEnvUpdate) {
       Update-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $api.url
+      Update-EnvValue -Key "PUBLIC_WEB_APP_URL" -Value $web.url
       Write-Host "Updated .env PUBLIC_API_BASE_URL=$($api.url)"
+      Write-Host "Updated .env PUBLIC_WEB_APP_URL=$($web.url)"
     }
 
     Write-Host ""

@@ -39,7 +39,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 start
 The script creates:
 
 - API tunnel for `http://localhost:8787`, used by Maestro callbacks and `PUBLIC_API_BASE_URL`.
-- Web tunnel for `http://localhost:5173`, opened on the phone for capture/review testing.
+- Web tunnel for `http://localhost:5173`, opened on the phone for capture/review testing and used by Action Center review links through `PUBLIC_WEB_APP_URL`.
 
 Check current tunnel URLs:
 
@@ -55,7 +55,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 stop
 
 This closes the public HTTPS tunnels. To stop the local web/API listeners too, stop `npm run dev` with `Ctrl+C` in its terminal.
 
-The script updates ignored local `.env` with the current API tunnel URL. Tunnel URLs are temporary; restart tunnels and rerun preflight before each live Maestro demo.
+The script updates ignored local `.env` with the current API tunnel URL and web tunnel URL. Tunnel URLs are temporary; restart tunnels and rerun preflight before each live Maestro demo.
 
 If Maestro reads `InvoiceIntakeApiBaseUrl` from Orchestrator assets, update that asset after the API tunnel changes:
 
@@ -69,6 +69,7 @@ Copy `.env.example` and set the local secrets you have:
 
 ```powershell
 $env:PUBLIC_API_BASE_URL="http://localhost:8787"
+$env:PUBLIC_WEB_APP_URL="http://localhost:5173"
 $env:EXTRACTION_MODE="local"
 $env:OPENAI_API_KEY="<openai-key>"
 $env:OPENAI_EXTRACTION_MODEL="gpt-4.1"
@@ -84,7 +85,7 @@ $env:ERPNEXT_DEFAULT_EXPENSE_ACCOUNT="<expense-account>"
 $env:ERPNEXT_DEFAULT_COST_CENTER="<cost-center>"
 ```
 
-Use `EXTRACTION_MODE=external` plus `EXTRACTION_START_URL` when extraction moves to a separate backend. Cloud Maestro cannot call localhost, so Case-driven execution needs `PUBLIC_API_BASE_URL` to be a public HTTPS URL.
+Use `EXTRACTION_MODE=external` plus `EXTRACTION_START_URL` when extraction moves to a separate backend. Cloud Maestro cannot call localhost, so Case-driven execution needs `PUBLIC_API_BASE_URL` to be a public HTTPS URL. Action Center review links also need `PUBLIC_WEB_APP_URL` to be a public HTTPS URL when reviewers are outside the local browser.
 
 ## UiPath Resources
 
@@ -100,7 +101,7 @@ Configure these per tenant in your local `.env`; no connected environment values
 - Case solution: `uipath/QoyodInvoiceIntakeSolution`
 - Case file: `uipath/QoyodInvoiceIntakeSolution/QoyodInvoiceIntakeCase/caseplan.json`
 
-The Case remains the visible Maestro design. If CaseManagement runtime is not available in your tenant, the PWA shows a local Maestro Case cockpit that mirrors the same stages. Once runtime exists, a Case/API Workflow can call the same extraction and callback endpoints.
+The Case remains the visible Maestro design. In live mode, API Workflow tasks call the backend to start extraction, poll review/post/fill state, and record stage callbacks. If CaseManagement runtime is not available in your tenant, the PWA shows a local Maestro Case cockpit that mirrors the same stages.
 
 Run the read-only preflight before a demo:
 

@@ -1,12 +1,37 @@
 {
-    "DocVersion": "1.0.0",
-    "StudioMinVersion": "2025.10.0",
-    "SolutionId": "3bb9870c-fca1-40bf-33ec-08decc79698d",
-    "Projects": [
-        {
-            "Type": "CaseManagement",
-            "ProjectRelativePath": "QoyodInvoiceIntakeCase\\project.uiproj",
-            "Id": "f6b4faf1-9796-4884-bab4-88880f55b97d"
-        }
-    ]
+  "DocVersion": "1.0.0",
+  "StudioMinVersion": "2025.10.0",
+  "SolutionId": "3bb9870c-fca1-40bf-33ec-08decc79698d",
+  "Projects": [
+    {
+      "Type": "CaseManagement",
+      "ProjectRelativePath": "QoyodInvoiceIntakeCase\\project.uiproj",
+      "Id": "f6b4faf1-9796-4884-bab4-88880f55b97d"
+    },
+    {
+      "Type": "Api",
+      "ProjectRelativePath": "QoyodCaseApiWorkflows\\project.uiproj",
+      "Id": "45247ef7-d6d8-4751-81cd-7ef2ffc5f68a"
+    },
+    {
+      "Type": "Api",
+      "ProjectRelativePath": "QoyodCaseWaitForQoyodExtensionDraft\\project.uiproj",
+      "Id": "ad39823a-0e1f-4113-af84-0ff5296091c2"
+    },
+    {
+      "Type": "Api",
+      "ProjectRelativePath": "QoyodCaseRecordCaseClosure\\project.uiproj",
+      "Id": "3849c88c-b0f7-4983-b3b3-a0749cd869a7"
+    },
+    {
+      "Type": "Api",
+      "ProjectRelativePath": "QoyodCaseStartAndWaitExtraction\\project.uiproj",
+      "Id": "0bfe979b-5ee7-460e-b706-195896a03b20"
+    },
+    {
+      "Type": "Api",
+      "ProjectRelativePath": "QoyodCasePersistReviewAndWaitPosting\\project.uiproj",
+      "Id": "b1df6126-1c54-43d2-8aec-f4a7d66d55f1"
+    }
+  ]
 }

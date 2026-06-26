@@ -1,0 +1,38 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCaseWaitForQoyodExtensionDraft",
+    "kind": "process",
+    "type": "api",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "ad39823a-0e1f-4113-af84-0ff5296091c2",
+    "isOverridable": true,
+    "dependencies": [
+      {
+        "kind": "package",
+        "name": "QoyodCaseWaitForQoyodExtensionDraft"
+      }
+    ],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "type": "Api",
+      "name": "QoyodCaseWaitForQoyodExtensionDraft",
+      "package": {
+        "key": "2ca9323f-601a-4b01-a78b-ab8967f895e0"
+      },
+      "targetFrameworkValue": "Portable",
+      "retentionAction": "Delete",
+      "retentionPeriod": 30,
+      "staleRetentionAction": "Delete",
+      "staleRetentionPeriod": 180
+    },
+    "locks": [],
+    "key": "a3fb6515-a391-4286-8e71-667a6554441a",
+    "files": []
+  }
+}

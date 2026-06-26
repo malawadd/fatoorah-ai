@@ -85,6 +85,7 @@ foreach ($envPath in @((Join-Path $Root "..\.env"), (Join-Path $Root ".env"))) {
 }
 $requiredEnv = @(
   "PUBLIC_API_BASE_URL",
+  "PUBLIC_WEB_APP_URL",
   "CASE_CALLBACK_TOKEN",
   "UIPATH_ENABLED",
   "UIPATH_FOLDER_PATH",
@@ -135,6 +136,13 @@ if ($publicUrl) {
   $isPublicHttps = $publicUrl -match "^https://" -and $publicUrl -notmatch "localhost|127\.0\.0\.1|192\.168\."
   $detail = if ($isPublicHttps) { "public HTTPS URL available for Maestro callbacks" } else { "local URL; use a tunnel before live Maestro callbacks" }
   Write-Check "PUBLIC_API_BASE_URL reachability shape" $true $detail
+}
+
+$publicWebUrl = EnvValue $dotEnv "PUBLIC_WEB_APP_URL"
+if ($publicWebUrl) {
+  $isPublicWebHttps = $publicWebUrl -match "^https://" -and $publicWebUrl -notmatch "localhost|127\.0\.0\.1|192\.168\."
+  $detail = if ($isPublicWebHttps) { "public HTTPS URL available for Action Center review links" } else { "local URL; use the web tunnel before live Action Center review" }
+  Write-Check "PUBLIC_WEB_APP_URL reachability shape" $true $detail
 }
 
 $login = Invoke-UipJson @("login", "status", "--output", "json")

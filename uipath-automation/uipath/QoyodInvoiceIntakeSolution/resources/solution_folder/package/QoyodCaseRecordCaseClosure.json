@@ -1,0 +1,23 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCaseRecordCaseClosure",
+    "kind": "package",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "3849c88c-b0f7-4983-b3b3-a0749cd869a7",
+    "isOverridable": true,
+    "dependencies": [],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "name": "QoyodCaseRecordCaseClosure"
+    },
+    "locks": [],
+    "key": "14df83e5-a0e3-48ea-b6cc-da15a19f2c0d",
+    "files": []
+  }
+}

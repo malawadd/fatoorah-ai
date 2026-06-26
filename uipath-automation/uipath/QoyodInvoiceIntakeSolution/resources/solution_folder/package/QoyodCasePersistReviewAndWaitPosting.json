@@ -1,0 +1,23 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCasePersistReviewAndWaitPosting",
+    "kind": "package",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "b1df6126-1c54-43d2-8aec-f4a7d66d55f1",
+    "isOverridable": true,
+    "dependencies": [],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "name": "QoyodCasePersistReviewAndWaitPosting"
+    },
+    "locks": [],
+    "key": "170961ea-3814-49d0-8290-6e03eb481d63",
+    "files": []
+  }
+}

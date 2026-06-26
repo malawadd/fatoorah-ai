@@ -27,10 +27,7 @@
             "isExpression": false
           }
         },
-        "resourceKind": "App",
-        "resourceKey": "8a14c8f7-e94e-455f-a601-546a23ff220d",
-        "resourceName": "qoyodinvoicereviewaction",
-        "folderKey": ""
+        "resourceKind": "App"
       }
     ],
     "folders": [

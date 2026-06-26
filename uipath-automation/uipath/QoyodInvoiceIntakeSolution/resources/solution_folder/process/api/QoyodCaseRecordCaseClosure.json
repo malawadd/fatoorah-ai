@@ -1,0 +1,38 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCaseRecordCaseClosure",
+    "kind": "process",
+    "type": "api",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "3849c88c-b0f7-4983-b3b3-a0749cd869a7",
+    "isOverridable": true,
+    "dependencies": [
+      {
+        "kind": "package",
+        "name": "QoyodCaseRecordCaseClosure"
+      }
+    ],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "type": "Api",
+      "name": "QoyodCaseRecordCaseClosure",
+      "package": {
+        "key": "14df83e5-a0e3-48ea-b6cc-da15a19f2c0d"
+      },
+      "targetFrameworkValue": "Portable",
+      "retentionAction": "Delete",
+      "retentionPeriod": 30,
+      "staleRetentionAction": "Delete",
+      "staleRetentionPeriod": 180
+    },
+    "locks": [],
+    "key": "7597faaa-4f11-4329-b1c6-92bed7dc4866",
+    "files": []
+  }
+}

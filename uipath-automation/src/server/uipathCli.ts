@@ -484,6 +484,11 @@ export async function maybeStartBatchCase(batch: InvoiceBatch, jobs: IntakeJob[]
     invoiceCount: jobs.length,
     jobIds: jobs.map((job) => job.jobId),
     firstJobId: jobs[0]?.jobId ?? "",
+    apiBaseUrl: process.env.PUBLIC_API_BASE_URL ?? process.env.INVOICE_INTAKE_API_BASE_URL ?? "",
+    webAppUrl: process.env.PUBLIC_WEB_APP_URL ?? "",
+    caseCallbackToken: process.env.CASE_CALLBACK_TOKEN ?? "",
+    maxAttempts: Number(process.env.CASE_WORKFLOW_MAX_ATTEMPTS ?? 60),
+    waitSeconds: Number(process.env.CASE_WORKFLOW_WAIT_SECONDS ?? 10),
     bucketKey: config.bucketKey,
     attachments: jobs.map((job) => {
       const attachment = job.draft.attachmentRefs[0];

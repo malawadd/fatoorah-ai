@@ -10,67 +10,84 @@
 - batchName: string
 - invoiceCount: number
 - jobIds: jsonSchema array<string>
+- firstJobId: string
 - jobId: string
 - bucketKey: string
 - bucketPath: string
 - attachmentName: string
 - attachmentMimeType: string
 - qrTlv: jsonSchema
+- attachments: jsonSchema array<object>
+- qrTlvByJob: jsonSchema object
+- apiBaseUrl: string
+- webAppUrl: string
+- caseCallbackToken: string
+- caseJobKey: string
+- caseInstanceId: string
+- maxAttempts: number
+- waitSeconds: number
 
 ## T03: Case Variables
 - invoiceDraft: jsonSchema
 - validationResult: jsonSchema
+- reviewUrl: string
 - reviewDecision: string
 - mappingStatus: string
 - qoyodDraftStatus: string
 - qoyodDraftReference: string
 - errorCode: string
+- caseStage: string
 - caseStatus: string
+- taskStatus: string
 
 ## T04: Stage Capture Intake
 - task: Register Capture Payload
 - type: api-workflow
-- resource: <UNRESOLVED: publish API workflow or replace with supported Case task>
+- resource: QoyodCaseApiWorkflows
 - callback: `POST /api/case/batches/{batchId}/stage`
 
 ## T05: Stage Extraction And Reconciliation
-- task: Extract Batch Invoice Drafts
+- task: Start And Wait Extraction
 - type: api-workflow
-- resource: <UNRESOLVED: Case runtime unavailable; backend starts `/api/extraction/jobs/{jobId}/start` for each uploaded job until enabled>
-- task: Validate QR OCR Totals Duplicates And Batch Exceptions
-- type: agent
-- resource: <UNRESOLVED: validation agent/process not published>
-- callback: `POST /api/case/batches/{batchId}/task`
+- resource: QoyodCaseStartAndWaitExtraction
+- callback: `POST /api/case/batches/{batchId}/extraction/start`, `GET /api/case/batches/{batchId}/progress`, and stage/exception callbacks
 
 ## T06: Stage Finance Review And Mapping
 - task: Review Correct And Map Batch
 - type: action
-- resource: <UNRESOLVED: publish QoyodInvoiceReviewAction and resolve action app>
+- resource: qoyodinvoicereviewaction
 - callback: `POST /api/case/batches/{batchId}/stage`
 
-## T07: Stage Qoyod Drafting
+## T07: Stage Destination Posting
+- task: Persist Review And Wait Posting
+- type: api-workflow
+- resource: QoyodCasePersistReviewAndWaitPosting
+- callback: `GET /api/case/batches/{batchId}/progress`, then stage/exception/close callback
+
+## T08: Stage Qoyod Drafting
 - task: Wait For Qoyod Extension Draft Save
 - type: api-workflow
-- resource: <UNRESOLVED: Case runtime unavailable; backend /api/fill status drives the extension handoff until enabled>
-- callback: `POST /api/case/batches/{batchId}/task`
+- resource: QoyodCaseWaitForQoyodExtensionDraft
+- callback: `GET /api/case/batches/{batchId}/progress`, then stage/exception/close callback
 
-## T08: Stage Exception Resolution
+## T09: Stage Exception Resolution
 - task: Resolve Batch Invoice Intake Exception
 - type: action
-- resource: <UNRESOLVED: publish exception action app or reuse review app>
+- resource: qoyodinvoicereviewaction
 - callback: `POST /api/case/batches/{batchId}/exception`
 
-## T09: Stage Closed
+## T10: Stage Closed
 - task: Record Case Closure
 - type: api-workflow
-- resource: <UNRESOLVED: publish API workflow or replace with supported Case task>
+- resource: QoyodCaseRecordCaseClosure
 - callback: `POST /api/case/batches/{batchId}/close`
 
-## T10: Routing Conditions
+## T11: Routing Conditions
 - Capture Intake enters on case-entered.
 - Extraction And Reconciliation enters after Capture Intake completes.
 - Finance Review And Mapping enters after Extraction And Reconciliation completes and errorCode is empty.
-- Qoyod Drafting enters when user routes from review after approve_for_qoyod or mappingStatus ready, then waits for extension fill status.
-- Exception Resolution enters by user selection or extraction/review/drafting error.
-- Closed enters after draft_saved or resolved/rejected exception.
+- Destination Posting enters after Finance Review And Mapping completes without rejection or error.
+- Qoyod Drafting enters after Destination Posting when backend progress says the next stage is Qoyod Drafting.
+- Exception Resolution enters by user selection or extraction/review/posting/drafting error.
+- Closed enters after ERPNext-only posting completes, Qoyod draft_saved, or resolved/rejected exception.
 - Case completes when the required Closed stage completes.

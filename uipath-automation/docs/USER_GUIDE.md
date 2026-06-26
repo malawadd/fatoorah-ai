@@ -18,7 +18,7 @@ This guide walks through the no-IXP/no-RPA pilot from invoice capture to destina
 - Phone/PWA capture: scans FATOORA QR payloads when available and uploads one or many invoice photos/PDFs.
 - Express API: stores batches, intake jobs, source files, extracted drafts, mapping rules, review status, and fill status.
 - LLM extraction: reads the uploaded image/PDF and produces a normalized invoice draft.
-- UiPath Maestro Case artifact: defines one dynamic Case per uploaded batch and will call the same backend endpoints after CaseManagement runtime is available.
+- UiPath Maestro Case artifact: defines one dynamic Case per uploaded batch. In live mode, API Workflow tasks call the public backend to start extraction, poll review/post/fill progress, and record Case stage callbacks.
 - Local Maestro Case cockpit: shows the active stage, runtime mode, Case identifiers, and exceptions while staging runtime is unavailable.
 - Orchestrator bucket/queue: stores source files and queue signals for the UiPath-facing pilot surface.
 - Finance review: confirms fields, totals, line items, duplicate warnings, and destination item/expense mappings before any platform is touched.
@@ -41,6 +41,7 @@ Make sure the backend environment includes:
 
 ```powershell
 $env:PUBLIC_API_BASE_URL="http://localhost:8787"
+$env:PUBLIC_WEB_APP_URL="http://localhost:5173"
 $env:EXTRACTION_MODE="local"
 $env:OPENAI_API_KEY="<openai-key>"
 $env:FILLER_API_TOKEN="<shared-extension-token>"
@@ -61,6 +62,7 @@ The script prints two URLs:
 
 - Web tunnel: open this URL on the phone. It points to the PWA on local port `5173`.
 - API tunnel: use this URL for Maestro callbacks. The script writes it to ignored local `.env` as `PUBLIC_API_BASE_URL`.
+- Web tunnel: use this URL on the phone and for Action Center review links. The script writes it to ignored local `.env` as `PUBLIC_WEB_APP_URL`.
 
 Check tunnel status:
 
@@ -82,7 +84,10 @@ After starting tunnels, run:
 powershell -ExecutionPolicy Bypass -File scripts\maestro-preflight.ps1
 ```
 
-Expected result: `PUBLIC_API_BASE_URL reachability shape - public HTTPS URL available for Maestro callbacks`.
+Expected results:
+
+- `PUBLIC_API_BASE_URL reachability shape - public HTTPS URL available for Maestro callbacks`
+- `PUBLIC_WEB_APP_URL reachability shape - public HTTPS URL available for Action Center review links`
 
 If the Maestro case reads the backend URL from the Orchestrator asset `InvoiceIntakeApiBaseUrl`, update that asset whenever the API tunnel URL changes:
 
@@ -111,7 +116,7 @@ Each invoice status moves to Extracting while the backend worker runs.
 
 Refresh or wait for the batch table to show invoices ready for review.
 
-The Maestro Case cockpit at the top of the batch workspace moves through Capture Intake, Extraction And Reconciliation, Finance Review And Mapping, Destination Posting, Qoyod Drafting, Exception Resolution, and Closed. In live mode Maestro owns the stage updates. In local fallback mode the backend mirrors stage progress from invoice statuses.
+The Maestro Case cockpit at the top of the batch workspace moves through Capture Intake, Extraction And Reconciliation, Finance Review And Mapping, Destination Posting, Qoyod Drafting, Exception Resolution, and Closed. In live mode Maestro owns the stage updates by running API Workflow tasks against `PUBLIC_API_BASE_URL`. In local fallback mode the backend mirrors stage progress from invoice statuses so the desktop demo still has a visible cockpit.
 
 ## 4. Review, Map, And Release
 
@@ -145,13 +150,9 @@ $env:ERPNEXT_DEFAULT_COST_CENTER="<cost-center>"
 $env:ERPNEXT_SUBMIT_AFTER_POST="false"
 ```
 
-Maestro or an operator can trigger ERPNext posting after review:
+When ERPNext is selected and review validation passes, Save invoice review creates an ERPNext Purchase Invoice draft immediately. The manual posting endpoint remains available for Case/API retries, but the browser flow does not require a separate click.
 
-```http
-POST /api/case/jobs/{jobId}/destinations/erpnext/post
-```
-
-The backend creates an ERPNext Purchase Invoice draft, uploads the source image/PDF as a private attachment, and stores the ERPNext reference on the job destination state. It does not submit the invoice.
+The backend uploads the source image/PDF as a private attachment and stores the ERPNext reference on the job destination state. It does not submit the invoice.
 
 For live sandbox validation:
 

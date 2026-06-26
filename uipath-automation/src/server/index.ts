@@ -17,6 +17,7 @@ import {
   releasedJobStatus,
   statusAfterDestinationPosting
 } from "./destinations";
+import { buildCaseBatchProgress } from "./caseProgress";
 import { createErpNextPurchaseInvoiceDraft, erpNextDestinationState, preflightErpNext } from "./erpnext";
 import { buildExtractionJobInput, extractInvoiceDraft, startExternalExtraction } from "./extraction";
 import { reconcileDraft } from "./reconciliation";
@@ -213,6 +214,19 @@ function commandDetails(result: UiPathCommandResult, extra: Record<string, unkno
     data: result.data,
     error: result.error,
     message: result.message
+  };
+}
+
+function caseEventDetails(request: Request, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...extra,
+    workflowName: optionalString(request.body.workflowName),
+    taskName: optionalString(request.body.taskName),
+    taskStatus: optionalString(request.body.taskStatus),
+    caseStage: optionalString(request.body.caseStage),
+    caseStatus: optionalString(request.body.caseStatus),
+    caseJobKey: optionalString(request.body.caseJobKey),
+    caseInstanceId: optionalString(request.body.caseInstanceId)
   };
 }
 
@@ -800,6 +814,68 @@ app.get("/api/case/batches/:batchId", asyncHandler(async (request, response) => 
   response.json(batch);
 }));
 
+app.post("/api/case/batches/:batchId/extraction/start", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batchId = routeParam(request.params.batchId);
+  const current = await jobStore.getBatchDetails(batchId);
+  if (!current) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  let startedCount = 0;
+  let skippedCount = 0;
+  for (const job of current.jobs) {
+    if (job.status === "uploaded" || job.status === "queued") {
+      await startExtraction(job, requestBaseUrl(request), "case");
+      startedCount += 1;
+    } else {
+      skippedCount += 1;
+    }
+  }
+
+  await jobStore.updateBatchCase(batchId, {
+    ...batchCasePatchFromBody(request.body),
+    caseStage: "Extraction And Reconciliation",
+    caseStatus: "active",
+    caseRuntimeMode: "live"
+  }, {
+    level: "info",
+    message: optionalString(request.body.message) ?? `Maestro extraction workflow checked ${current.jobs.length} invoice(s); started ${startedCount}.`,
+    details: caseEventDetails(request, {
+      operation: "case.batch.extraction.start",
+      startedCount,
+      skippedCount
+    })
+  });
+
+  const updated = await jobStore.getBatchDetails(batchId);
+  if (!updated) {
+    response.status(404).json({ error: "Batch not found after extraction start." });
+    return;
+  }
+
+  response.status(202).json({
+    batch: updated,
+    startedCount,
+    skippedCount,
+    progress: buildCaseBatchProgress(updated, process.env.PUBLIC_WEB_APP_URL)
+  });
+}));
+
+app.get("/api/case/batches/:batchId/progress", asyncHandler(async (request, response) => {
+  if (!verifyCaseToken(request, response)) return;
+
+  const batch = await jobStore.getBatchDetails(routeParam(request.params.batchId));
+  if (!batch) {
+    response.status(404).json({ error: "Batch not found." });
+    return;
+  }
+
+  response.json({ progress: buildCaseBatchProgress(batch, process.env.PUBLIC_WEB_APP_URL) });
+}));
+
 app.post("/api/case/batches/:batchId/stage", asyncHandler(async (request, response) => {
   if (!verifyCaseToken(request, response)) return;
 
@@ -818,7 +894,8 @@ app.post("/api/case/batches/:batchId/stage", asyncHandler(async (request, respon
     caseRuntimeMode: "live"
   }, {
     level: "info",
-    message: optionalString(request.body.message) ?? `Maestro Case stage changed to ${stage}.`
+    message: optionalString(request.body.message) ?? `Maestro Case stage changed to ${stage}.`,
+    details: caseEventDetails(request, { operation: "case.batch.stage" })
   });
 
   response.json(await jobStore.getBatchDetails(batchId));
@@ -844,7 +921,8 @@ app.post("/api/case/batches/:batchId/task", asyncHandler(async (request, respons
     caseRuntimeMode: "live"
   }, {
     level: taskStatus === "failed" ? "error" : "info",
-    message: optionalString(request.body.message) ?? `${taskName} ${taskStatus}.`
+    message: optionalString(request.body.message) ?? `${taskName} ${taskStatus}.`,
+    details: caseEventDetails(request, { operation: "case.batch.task" })
   });
 
   response.json(await jobStore.getBatchDetails(batchId));
@@ -871,7 +949,8 @@ app.post("/api/case/batches/:batchId/exception", asyncHandler(async (request, re
     exceptionMessage: message
   }, {
     level: "error",
-    message
+    message,
+    details: caseEventDetails(request, { operation: "case.batch.exception" })
   });
 
   response.json(await jobStore.getBatchDetails(batchId));
@@ -896,7 +975,8 @@ app.post("/api/case/batches/:batchId/close", asyncHandler(async (request, respon
     exceptionMessage: undefined
   }, {
     level: "info",
-    message: optionalString(request.body.message) ?? "Maestro Case closed."
+    message: optionalString(request.body.message) ?? "Maestro Case closed.",
+    details: caseEventDetails(request, { operation: "case.batch.close" })
   });
 
   response.json(await jobStore.getBatchDetails(batchId));

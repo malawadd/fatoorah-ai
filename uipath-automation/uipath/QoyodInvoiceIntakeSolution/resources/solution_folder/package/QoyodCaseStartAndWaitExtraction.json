@@ -1,0 +1,23 @@
+{
+  "docVersion": "1.0.0",
+  "resource": {
+    "name": "QoyodCaseStartAndWaitExtraction",
+    "kind": "package",
+    "apiVersion": "orchestrator.uipath.com/v1",
+    "projectKey": "0bfe979b-5ee7-460e-b706-195896a03b20",
+    "isOverridable": true,
+    "dependencies": [],
+    "runtimeDependencies": [],
+    "folders": [
+      {
+        "fullyQualifiedName": "solution_folder"
+      }
+    ],
+    "spec": {
+      "name": "QoyodCaseStartAndWaitExtraction"
+    },
+    "locks": [],
+    "key": "834951bd-4ef8-4175-a59f-ea8fcff98ea4",
+    "files": []
+  }
+}
