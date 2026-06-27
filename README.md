@@ -33,7 +33,7 @@ npm run dev
 Then start both HTTPS tunnels:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 start
+powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 start -SyncMaestro
 ```
 
 The script creates:
@@ -55,13 +55,21 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 stop
 
 This closes the public HTTPS tunnels. To stop the local web/API listeners too, stop `npm run dev` with `Ctrl+C` in its terminal.
 
-The script updates ignored local `.env` with the current API tunnel URL and web tunnel URL. Tunnel URLs are temporary; restart tunnels and rerun preflight before each live Maestro demo.
+The script updates ignored local `.env` with the current API tunnel URL and web tunnel URL, then verifies that the running backend and Maestro preflight see those URLs. Tunnel URLs are temporary; restart tunnels and rerun sync before each live Maestro demo.
 
-If Maestro reads `InvoiceIntakeApiBaseUrl` from Orchestrator assets, update that asset after the API tunnel changes:
+If you started tunnels without `-SyncMaestro`, run:
 
 ```powershell
-uip or assets update <asset-id> "<api-tunnel-url>" --folder-path "Finance/InvoiceIntake" --output json
+powershell -ExecutionPolicy Bypass -File scripts\sync-maestro-tunnel.ps1
 ```
+
+Run a live Case callback smoke test:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\maestro-tunnel-smoke.ps1 -BatchName "demo test"
+```
+
+Tunnel rotation does not require redeploying the UiPath package because the current tunnel URL is passed as a Case start input. See `docs/MAESTRO_TUNNEL_ROTATION_FINDINGS.md` for the root cause and recovery details.
 
 ## Local Env
 
@@ -187,6 +195,7 @@ POST /api/case/jobs/{jobId}/destinations/erpnext/post
 Maestro Case callbacks:
 
 ```http
+GET /api/runtime/config
 GET /api/case/batches/{batchId}
 POST /api/case/batches/{batchId}/stage
 POST /api/case/batches/{batchId}/task

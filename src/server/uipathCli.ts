@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { IntakeJob, InvoiceBatch } from "../shared/invoice";
+import { refreshRuntimeEnv } from "./env";
 
 const execFileAsync = promisify(execFile);
 
@@ -147,6 +148,8 @@ function resolveUipInvocation(args: string[]): { executable: string; args: strin
 }
 
 function readConfig(): UiPathConfig {
+  refreshRuntimeEnv();
+
   return {
     enabled: process.env.UIPATH_ENABLED === "true",
     folderPath: process.env.UIPATH_FOLDER_PATH ?? "",
