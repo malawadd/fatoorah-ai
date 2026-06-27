@@ -1,0 +1,9 @@
+{
+  "ProjectType": "Api",
+  "name": "QoyodCaseWaitForQoyodExtensionDraft",
+  "description": "Wait For Qoyod Extension Draft",
+  "main": "WaitForQoyodExtensionDraft.json",
+  "entryPoints": [
+    "WaitForQoyodExtensionDraft.json"
+  ]
+}

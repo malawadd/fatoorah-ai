@@ -107,8 +107,14 @@ $caseValidateInputs = EnvValue $dotEnv "UIPATH_CASE_VALIDATE_INPUTS"
 Write-Check "env UIPATH_CASE_PROCESS_KEY" ((-not $startCase) -or [bool]$caseProcessKey) $(if ($caseProcessKey) { "set" } elseif ($startCase) { "missing and live Case start is enabled" } else { "not set; live Case start disabled" })
 Write-Check "env UIPATH_CASE_FOLDER_KEY" ((-not $startCase) -or [bool]$caseFolderKey) $(if ($caseFolderKey) { "set" } elseif ($startCase) { "missing and live Case start is enabled" } else { "not set; live Case start disabled" })
 Write-Check "env UIPATH_CASE_VALIDATE_INPUTS" ($caseValidateInputs -ne "true") $(if ($caseValidateInputs -eq "true") { "must be false in staging because CLI --validate rejects Case package keys" } else { "disabled or false" })
-if ($caseProcessKey -and $folderPath) {
-  $caseProcesses = Invoke-UipJson @("or", "processes", "list", "--folder-path", $folderPath, "--output", "json")
+if ($caseProcessKey -and ($caseFolderKey -or $folderPath)) {
+  $caseProcessArgs = if ($caseFolderKey) {
+    @("or", "processes", "list", "--folder-key", $caseFolderKey, "--output", "json")
+  } else {
+    @("or", "processes", "list", "--folder-path", $folderPath, "--output", "json")
+  }
+  $caseFolderDetail = if ($caseFolderKey) { "folder key $caseFolderKey" } else { "folder path $folderPath" }
+  $caseProcesses = Invoke-UipJson $caseProcessArgs
   $processKeyMatches = @()
   $uuidKeyMatches = @()
   if ($caseProcesses.ExitCode -eq 0 -and $caseProcesses.Json -and $caseProcesses.Json.Data) {
@@ -127,7 +133,7 @@ if ($caseProcessKey -and $folderPath) {
     $matched = $uuidKeyMatches[0]
     Write-Check "configured Case run key" $false ("configured value is the process UUID Key; use ProcessKey '{0}' and UIPATH_CASE_RELEASE_KEY '{1}'" -f $matched.ProcessKey, $matched.Key)
   } else {
-    Write-Check "configured Case run key" $false $(if ($caseProcesses.Text) { $caseProcesses.Text } else { "not found in folder $folderPath" })
+    Write-Check "configured Case run key" $false $(if ($caseProcesses.Text) { $caseProcesses.Text } else { "not found in $caseFolderDetail" })
   }
 }
 

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <id>QoyodInvoiceIntakeSolution.Api.QoyodCaseStartAndWaitExtraction</id>
+    <version>0.2.1</version>
+    <title>QoyodInvoiceIntakeSolution.Api.QoyodCaseStartAndWaitExtraction</title>
+    <authors>Qoyod Intake</authors>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Qoyod Invoice Intake Maestro API Workflow</description>
+    <releaseNotes></releaseNotes>
+  </metadata>
+</package>

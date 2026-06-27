@@ -1,0 +1,9 @@
+{
+  "ProjectType": "Api",
+  "name": "QoyodCaseStartAndWaitExtraction",
+  "description": "Start And Wait Extraction",
+  "main": "StartAndWaitExtraction.json",
+  "entryPoints": [
+    "StartAndWaitExtraction.json"
+  ]
+}

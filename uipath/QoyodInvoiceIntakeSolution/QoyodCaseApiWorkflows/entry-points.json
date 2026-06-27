@@ -1,0 +1,52 @@
+{
+  "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+  "$id": "entry-points.json",
+  "entryPoints": [
+    {
+      "filePath": "/content/RegisterCapturePayload.json",
+      "uniqueId": "0f0458fb-394c-54a4-a926-db6ecd54c49a",
+      "type": "Api",
+      "input": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "caseCallbackToken": {
+            "type": "string"
+          },
+          "batchId": {
+            "type": "string"
+          },
+          "caseJobKey": {
+            "type": "string"
+          },
+          "caseInstanceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiBaseUrl",
+          "batchId"
+        ],
+        "title": "Inputs"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "caseStage": {
+            "type": "string"
+          },
+          "caseStatus": {
+            "type": "string"
+          },
+          "taskStatus": {
+            "type": "string"
+          }
+        },
+        "title": "Outputs"
+      },
+      "displayName": "Register Capture Payload"
+    }
+  ]
+}

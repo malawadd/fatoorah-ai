@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -k -n api,web -c green,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch src/server/index.ts",
-    "dev:web": "vite --host 0.0.0.0 --port 3000",
+    "dev:web": "vite --host 0.0.0.0 ",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "smoke:live": "tsx src/server/liveSmoke.ts",

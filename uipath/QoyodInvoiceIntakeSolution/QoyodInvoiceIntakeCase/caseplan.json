@@ -29,30 +29,12 @@
     },
     "bindings": [
         {
-            "id": "bH4qVt9Lp",
-            "name": "name",
-            "type": "string",
-            "resource": "app",
-            "resourceKey": "Finance/InvoiceIntake.qoyodinvoicereviewaction",
-            "default": "qoyodinvoicereviewaction",
-            "propertyAttribute": "name"
-        },
-        {
-            "id": "bJ8mRc2Nx",
-            "name": "folderPath",
-            "type": "string",
-            "resource": "app",
-            "resourceKey": "Finance/InvoiceIntake.qoyodinvoicereviewaction",
-            "default": "Finance/InvoiceIntake",
-            "propertyAttribute": "folderPath"
-        },
-        {
             "id": "bRgNm01x",
             "name": "name",
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseRegisterCapturePayload",
+            "resourceKey": "solution_folder.QoyodCaseRegisterCapturePayload",
             "default": "QoyodCaseRegisterCapturePayload",
             "propertyAttribute": "name"
         },
@@ -62,8 +44,8 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseRegisterCapturePayload",
-            "default": "Finance/InvoiceIntake",
+            "resourceKey": "solution_folder.QoyodCaseRegisterCapturePayload",
+                            "default": "Finance/InvoiceIntakeDemoTest026",
             "propertyAttribute": "folderPath"
         },
         {
@@ -72,7 +54,7 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseStartAndWaitExtraction",
+            "resourceKey": "solution_folder.QoyodCaseStartAndWaitExtraction",
             "default": "QoyodCaseStartAndWaitExtraction",
             "propertyAttribute": "name"
         },
@@ -82,8 +64,8 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseStartAndWaitExtraction",
-            "default": "Finance/InvoiceIntake",
+            "resourceKey": "solution_folder.QoyodCaseStartAndWaitExtraction",
+                            "default": "Finance/InvoiceIntakeDemoTest026",
             "propertyAttribute": "folderPath"
         },
         {
@@ -92,7 +74,7 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCasePersistReviewAndWaitPosting",
+            "resourceKey": "solution_folder.QoyodCasePersistReviewAndWaitPosting",
             "default": "QoyodCasePersistReviewAndWaitPosting",
             "propertyAttribute": "name"
         },
@@ -102,8 +84,8 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCasePersistReviewAndWaitPosting",
-            "default": "Finance/InvoiceIntake",
+            "resourceKey": "solution_folder.QoyodCasePersistReviewAndWaitPosting",
+                            "default": "Finance/InvoiceIntakeDemoTest026",
             "propertyAttribute": "folderPath"
         },
         {
@@ -112,7 +94,7 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseWaitForQoyodExtensionDraft",
+            "resourceKey": "solution_folder.QoyodCaseWaitForQoyodExtensionDraft",
             "default": "QoyodCaseWaitForQoyodExtensionDraft",
             "propertyAttribute": "name"
         },
@@ -122,8 +104,8 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseWaitForQoyodExtensionDraft",
-            "default": "Finance/InvoiceIntake",
+            "resourceKey": "solution_folder.QoyodCaseWaitForQoyodExtensionDraft",
+                            "default": "Finance/InvoiceIntakeDemoTest026",
             "propertyAttribute": "folderPath"
         },
         {
@@ -132,7 +114,7 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseRecordCaseClosure",
+            "resourceKey": "solution_folder.QoyodCaseRecordCaseClosure",
             "default": "QoyodCaseRecordCaseClosure",
             "propertyAttribute": "name"
         },
@@ -142,8 +124,8 @@
             "type": "string",
             "resource": "process",
             "resourceSubType": "Api",
-            "resourceKey": "Finance/InvoiceIntake.QoyodCaseRecordCaseClosure",
-            "default": "Finance/InvoiceIntake",
+            "resourceKey": "solution_folder.QoyodCaseRecordCaseClosure",
+                            "default": "Finance/InvoiceIntakeDemoTest026",
             "propertyAttribute": "folderPath"
         }
     ],
@@ -690,8 +672,7 @@
                                         "elementId": "Stage_q7Mnk2-tQ2mN8pLa"
                                     }
                                 ]
-                            }
-                            ,
+                            },
                             "entryConditions": [
                                 {
                                     "id": "cRgStage1",
@@ -898,8 +879,7 @@
                                         "elementId": "Stage_Y4pLq8-tE7xK3mQa"
                                     }
                                 ]
-                            }
-                            ,
+                            },
                             "entryConditions": [
                                 {
                                     "id": "cExStage1",
@@ -969,92 +949,113 @@
                         {
                             "id": "tA4mC9qRs",
                             "elementId": "Stage_A9vTr3-tA4mC9qRs",
-                            "displayName": "Review Correct And Map Invoice",
-                            "description": "Action Center checkpoint for finance to review the extracted batch in the web app, correct data, choose mappings, and approve draft creation.",
+                            "displayName": "Wait For Finance Web Review",
+                            "description": "API workflow checkpoint that waits for the finance user to review/correct the batch in the web app, choose mappings, and allow destination draft creation.",
                             "isRequired": true,
                             "shouldRunOnlyOnce": false,
-                            "type": "action",
+                            "type": "api-workflow",
                             "data": {
-                                "taskTitle": "Review extracted invoice and approve Qoyod draft creation",
-                                "priority": "High",
-                                "recipient": {
-                                    "Type": 2,
-                                    "Value": "malawad@outlook.com"
-                                },
-                                "labels": "qoyod,invoice-intake,finance-review",
-                                "name": "=bindings.bH4qVt9Lp",
-                                "folderPath": "=bindings.bJ8mRc2Nx",
+                                "name": "=bindings.bPoNm01x",
+                                "folderPath": "=bindings.bPoFp01x",
                                 "inputs": [
                                     {
-                                        "name": "jobId",
+                                        "name": "apiBaseUrl",
                                         "type": "string",
-                                        "id": "vqK9u7nnY",
-                                        "var": "vqK9u7nnY",
+                                        "id": "vRv01",
+                                        "var": "vRv01",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs",
-                                        "value": "=vars.firstJobId"
+                                        "value": "=vars.apiBaseUrl"
                                     },
                                     {
-                                        "name": "validationResult",
-                                        "type": "json",
-                                        "id": "v0gBkMxvY",
-                                        "var": "v0gBkMxvY",
-                                        "elementId": "Stage_A9vTr3-tA4mC9qRs",
-                                        "value": "=vars.validationResult"
-                                    },
-                                    {
-                                        "name": "bucketPath",
+                                        "name": "caseCallbackToken",
                                         "type": "string",
-                                        "id": "vFuiIf2iR",
-                                        "var": "vFuiIf2iR",
+                                        "id": "vRv01",
+                                        "var": "vRv01",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs",
-                                        "value": "=vars.bucketPath"
+                                        "value": "=vars.caseCallbackToken"
                                     },
                                     {
-                                        "name": "attachmentName",
+                                        "name": "batchId",
                                         "type": "string",
-                                        "id": "vtjDUQ29O",
-                                        "var": "vtjDUQ29O",
+                                        "id": "vRv01",
+                                        "var": "vRv01",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs",
-                                        "value": "=vars.attachmentName"
+                                        "value": "=vars.batchId"
                                     },
                                     {
-                                        "name": "invoiceDraft",
-                                        "type": "json",
-                                        "id": "vJxayIB7R",
-                                        "var": "vJxayIB7R",
+                                        "name": "caseJobKey",
+                                        "type": "string",
+                                        "id": "vRv01",
+                                        "var": "vRv01",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs",
-                                        "value": "=vars.invoiceDraft"
+                                        "value": "=vars.caseJobKey"
+                                    },
+                                    {
+                                        "name": "caseInstanceId",
+                                        "type": "string",
+                                        "id": "vRv01",
+                                        "var": "vRv01",
+                                        "elementId": "Stage_A9vTr3-tA4mC9qRs",
+                                        "value": "=vars.caseInstanceId"
+                                    },
+                                    {
+                                        "name": "maxAttempts",
+                                        "type": "number",
+                                        "id": "vRv01",
+                                        "var": "vRv01",
+                                        "elementId": "Stage_A9vTr3-tA4mC9qRs",
+                                        "value": "=vars.maxAttempts"
                                     }
                                 ],
                                 "outputs": [
                                     {
-                                        "name": "reviewDecision",
+                                        "name": "caseStage",
                                         "type": "string",
-                                        "id": "reviewDecision",
-                                        "var": "reviewDecision",
-                                        "value": "reviewDecision",
-                                        "source": "=reviewDecision",
-                                        "target": "=reviewDecision",
+                                        "id": "caseStage",
+                                        "var": "caseStage",
+                                        "value": "caseStage",
+                                        "source": "=caseStage",
+                                        "target": "=caseStage",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs"
                                     },
                                     {
-                                        "name": "mappingStatus",
+                                        "name": "caseStatus",
                                         "type": "string",
-                                        "id": "mappingStatus",
-                                        "var": "mappingStatus",
-                                        "value": "mappingStatus",
-                                        "source": "=mappingStatus",
-                                        "target": "=mappingStatus",
+                                        "id": "caseStatus",
+                                        "var": "caseStatus",
+                                        "value": "caseStatus",
+                                        "source": "=caseStatus",
+                                        "target": "=caseStatus",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs"
                                     },
                                     {
-                                        "name": "reviewNotes",
+                                        "name": "taskStatus",
                                         "type": "string",
-                                        "id": "reviewNotes",
-                                        "var": "reviewNotes",
-                                        "value": "reviewNotes",
-                                        "source": "=reviewNotes",
-                                        "target": "=reviewNotes",
+                                        "id": "taskStatus",
+                                        "var": "taskStatus",
+                                        "value": "taskStatus",
+                                        "source": "=taskStatus",
+                                        "target": "=taskStatus",
+                                        "elementId": "Stage_A9vTr3-tA4mC9qRs"
+                                    },
+                                    {
+                                        "name": "qoyodDraftStatus",
+                                        "type": "string",
+                                        "id": "qoyodDraftStatus",
+                                        "var": "qoyodDraftStatus",
+                                        "value": "qoyodDraftStatus",
+                                        "source": "=qoyodDraftStatus",
+                                        "target": "=qoyodDraftStatus",
+                                        "elementId": "Stage_A9vTr3-tA4mC9qRs"
+                                    },
+                                    {
+                                        "name": "qoyodDraftReference",
+                                        "type": "string",
+                                        "id": "qoyodDraftReference",
+                                        "var": "qoyodDraftReference",
+                                        "value": "qoyodDraftReference",
+                                        "source": "=qoyodDraftReference",
+                                        "target": "=qoyodDraftReference",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs"
                                     },
                                     {
@@ -1065,26 +1066,6 @@
                                         "value": "errorCode",
                                         "source": "=errorCode",
                                         "target": "=errorCode",
-                                        "elementId": "Stage_A9vTr3-tA4mC9qRs"
-                                    },
-                                    {
-                                        "name": "invoiceDraft",
-                                        "type": "json",
-                                        "id": "invoiceDraft",
-                                        "var": "invoiceDraft",
-                                        "value": "invoiceDraft",
-                                        "source": "=invoiceDraft",
-                                        "target": "=invoiceDraft",
-                                        "elementId": "Stage_A9vTr3-tA4mC9qRs"
-                                    },
-                                    {
-                                        "name": "Action",
-                                        "type": "string",
-                                        "id": "action",
-                                        "var": "action",
-                                        "value": "action",
-                                        "source": "=Action",
-                                        "target": "=action",
                                         "elementId": "Stage_A9vTr3-tA4mC9qRs"
                                     }
                                 ]
@@ -1127,7 +1108,7 @@
                     {
                         "id": "Condition_R4pNx7",
                         "displayName": "Finance review completed",
-                        "type": "wait-for-user",
+                        "type": "exit-only",
                         "marksStageComplete": true,
                         "rules": [
                             [
@@ -1308,7 +1289,7 @@
                                     "id": "Rule_H8sNm4",
                                     "rule": "selected-stage-completed",
                                     "selectedStageId": "Stage_A9vTr3",
-                                    "conditionExpression": "=js:vars.errorCode === '' && vars.reviewDecision !== 'rejected'"
+                                    "conditionExpression": "=js:vars.errorCode === '' && vars.reviewDecision !== 'rejected' && vars.caseStatus !== 'closed' && vars.caseStage !== 'Closed'"
                                 }
                             ]
                         ]
@@ -1470,8 +1451,7 @@
                                         "elementId": "Stage_K2mXz7-tR5kT8vUy"
                                     }
                                 ]
-                            }
-                            ,
+                            },
                             "entryConditions": [
                                 {
                                     "id": "cQyStage1",
@@ -1542,122 +1522,85 @@
                         {
                             "id": "tX8nJ2pWq",
                             "elementId": "Stage_P6nRb4-tX8nJ2pWq",
-                            "displayName": "Resolve Invoice Intake Exception",
-                            "description": "Placeholder Action Center task for exception decisions, reject, rework, or manual resolution.",
+                            "displayName": "Record Exception Resolution",
+                            "description": "API workflow checkpoint that records the current exception state and closes the backend case when finance resolves or rejects the intake.",
                             "isRequired": true,
                             "shouldRunOnlyOnce": false,
-                            "type": "action",
+                            "type": "api-workflow",
                             "data": {
-                                "taskTitle": "Resolve Qoyod invoice intake exception",
-                                "priority": "High",
-                                "recipient": {
-                                    "Type": 2,
-                                    "Value": "malawad@outlook.com"
-                                },
-                                "labels": "qoyod,invoice-intake,exception-resolution",
-                                "name": "=bindings.bH4qVt9Lp",
-                                "folderPath": "=bindings.bJ8mRc2Nx",
+                                "name": "=bindings.bClNm01x",
+                                "folderPath": "=bindings.bClFp01x",
                                 "inputs": [
                                     {
-                                        "name": "jobId",
+                                        "name": "apiBaseUrl",
                                         "type": "string",
-                                        "id": "vX2pL8qNs",
-                                        "var": "vX2pL8qNs",
+                                        "id": "vEx01",
+                                        "var": "vEx01",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq",
-                                        "value": "=vars.firstJobId"
+                                        "value": "=vars.apiBaseUrl"
                                     },
                                     {
-                                        "name": "validationResult",
-                                        "type": "json",
-                                        "id": "vR7mQt4Kp",
-                                        "var": "vR7mQt4Kp",
-                                        "elementId": "Stage_P6nRb4-tX8nJ2pWq",
-                                        "value": "=vars.validationResult"
-                                    },
-                                    {
-                                        "name": "bucketPath",
+                                        "name": "caseCallbackToken",
                                         "type": "string",
-                                        "id": "vM9kCx2Ra",
-                                        "var": "vM9kCx2Ra",
+                                        "id": "vEx02",
+                                        "var": "vEx02",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq",
-                                        "value": "=vars.bucketPath"
+                                        "value": "=vars.caseCallbackToken"
                                     },
                                     {
-                                        "name": "attachmentName",
+                                        "name": "batchId",
                                         "type": "string",
-                                        "id": "vN4sWp8Ty",
-                                        "var": "vN4sWp8Ty",
+                                        "id": "vEx03",
+                                        "var": "vEx03",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq",
-                                        "value": "=vars.attachmentName"
+                                        "value": "=vars.batchId"
                                     },
                                     {
-                                        "name": "invoiceDraft",
-                                        "type": "json",
-                                        "id": "vC5hMz7Qb",
-                                        "var": "vC5hMz7Qb",
+                                        "name": "caseJobKey",
+                                        "type": "string",
+                                        "id": "vEx04",
+                                        "var": "vEx04",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq",
-                                        "value": "=vars.invoiceDraft"
+                                        "value": "=vars.caseJobKey"
+                                    },
+                                    {
+                                        "name": "caseInstanceId",
+                                        "type": "string",
+                                        "id": "vEx05",
+                                        "var": "vEx05",
+                                        "elementId": "Stage_P6nRb4-tX8nJ2pWq",
+                                        "value": "=vars.caseInstanceId"
                                     }
                                 ],
                                 "outputs": [
                                     {
-                                        "name": "reviewDecision",
+                                        "name": "caseStage",
                                         "type": "string",
-                                        "id": "reviewDecision",
-                                        "var": "reviewDecision",
-                                        "value": "reviewDecision",
-                                        "source": "=reviewDecision",
-                                        "target": "=reviewDecision",
+                                        "id": "caseStage",
+                                        "var": "caseStage",
+                                        "value": "caseStage",
+                                        "source": "=caseStage",
+                                        "target": "=caseStage",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq"
                                     },
                                     {
-                                        "name": "mappingStatus",
+                                        "name": "caseStatus",
                                         "type": "string",
-                                        "id": "mappingStatus",
-                                        "var": "mappingStatus",
-                                        "value": "mappingStatus",
-                                        "source": "=mappingStatus",
-                                        "target": "=mappingStatus",
+                                        "id": "caseStatus",
+                                        "var": "caseStatus",
+                                        "value": "caseStatus",
+                                        "source": "=caseStatus",
+                                        "target": "=caseStatus",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq"
                                     },
                                     {
-                                        "name": "reviewNotes",
+                                        "name": "taskStatus",
                                         "type": "string",
-                                        "id": "reviewNotes",
-                                        "var": "reviewNotes",
-                                        "value": "reviewNotes",
-                                        "source": "=reviewNotes",
-                                        "target": "=reviewNotes",
-                                        "elementId": "Stage_P6nRb4-tX8nJ2pWq"
-                                    },
-                                    {
-                                        "name": "errorCode",
-                                        "type": "string",
-                                        "id": "errorCode",
-                                        "var": "errorCode",
-                                        "value": "errorCode",
-                                        "source": "=errorCode",
-                                        "target": "=errorCode",
-                                        "elementId": "Stage_P6nRb4-tX8nJ2pWq"
-                                    },
-                                    {
-                                        "name": "invoiceDraft",
-                                        "type": "json",
-                                        "id": "invoiceDraft",
-                                        "var": "invoiceDraft",
-                                        "value": "invoiceDraft",
-                                        "source": "=invoiceDraft",
-                                        "target": "=invoiceDraft",
-                                        "elementId": "Stage_P6nRb4-tX8nJ2pWq"
-                                    },
-                                    {
-                                        "name": "Action",
-                                        "type": "string",
-                                        "id": "action",
-                                        "var": "action",
-                                        "value": "action",
-                                        "source": "=Action",
-                                        "target": "=action",
+                                        "id": "taskStatus",
+                                        "var": "taskStatus",
+                                        "value": "taskStatus",
+                                        "source": "=taskStatus",
+                                        "target": "=taskStatus",
                                         "elementId": "Stage_P6nRb4-tX8nJ2pWq"
                                     }
                                 ]
@@ -1680,19 +1623,6 @@
                     ]
                 ],
                 "entryConditions": [
-                    {
-                        "id": "Condition_K5mSt2",
-                        "displayName": "User routed to exception",
-                        "isInterrupting": false,
-                        "rules": [
-                            [
-                                {
-                                    "id": "Rule_Y4qLb7",
-                                    "rule": "user-selected-stage"
-                                }
-                            ]
-                        ]
-                    },
                     {
                         "id": "Condition_Q8pCx5",
                         "displayName": "Extraction exception",
@@ -1872,8 +1802,7 @@
                                         "elementId": "Stage_D8sHv5-tC3hM7sDz"
                                     }
                                 ]
-                            }
-                            ,
+                            },
                             "entryConditions": [
                                 {
                                     "id": "cClStage1",
@@ -1892,6 +1821,21 @@
                     ]
                 ],
                 "entryConditions": [
+                    {
+                        "id": "Condition_FinClosed1",
+                        "displayName": "Finance review closed case",
+                        "isInterrupting": false,
+                        "rules": [
+                            [
+                                {
+                                    "id": "Rule_FinClosed1",
+                                    "rule": "selected-stage-completed",
+                                    "selectedStageId": "Stage_A9vTr3",
+                                    "conditionExpression": "=js:vars.caseStatus === 'closed' || vars.caseStage === 'Closed'"
+                                }
+                            ]
+                        ]
+                    },
                     {
                         "id": "Condition_PoClosed1",
                         "displayName": "Destination posting complete",

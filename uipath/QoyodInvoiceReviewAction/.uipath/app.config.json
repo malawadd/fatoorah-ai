@@ -1,11 +1,9 @@
 {
   "appName": "qoyodinvoicereviewaction",
-  "displayName": "QoyodInvoiceReviewAction",
-  "appVersion": "0.1.0",
+  "displayName": "qoyodinvoicereviewaction",
+  "appVersion": "0.1.1",
   "systemName": "IDd1edad135be64d84a2c6966ce85cae5b",
   "appUrl": null,
-  "registeredAt": "",
-  "appType": "Action",
-  "deploymentId": "",
-  "deployedAt": ""
+  "registeredAt": "2026-06-26T19:39:37.272Z",
+  "appType": "Action"
 }

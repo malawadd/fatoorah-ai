@@ -1,0 +1,70 @@
+{
+  "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+  "$id": "entry-points.json",
+  "entryPoints": [
+    {
+      "filePath": "/content/StartAndWaitExtraction.json",
+      "uniqueId": "6fd5047a-6df9-5534-8a7f-a9c86c0d0992",
+      "type": "Api",
+      "input": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "caseCallbackToken": {
+            "type": "string"
+          },
+          "batchId": {
+            "type": "string"
+          },
+          "caseJobKey": {
+            "type": "string"
+          },
+          "caseInstanceId": {
+            "type": "string"
+          },
+          "waitSeconds": {
+            "type": "number"
+          },
+          "maxAttempts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "apiBaseUrl",
+          "batchId"
+        ],
+        "title": "Inputs"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "caseStage": {
+            "type": "string"
+          },
+          "caseStatus": {
+            "type": "string"
+          },
+          "taskStatus": {
+            "type": "string"
+          },
+          "invoiceDraft": {
+            "type": "object"
+          },
+          "validationResult": {
+            "type": "object"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "reviewUrl": {
+            "type": "string"
+          }
+        },
+        "title": "Outputs"
+      },
+      "displayName": "Start And Wait Extraction"
+    }
+  ]
+}

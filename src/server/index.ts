@@ -206,15 +206,56 @@ function optionalCaseStatus(value: unknown): CaseStatus | undefined {
   return caseStatuses.includes(value as CaseStatus) ? value as CaseStatus : undefined;
 }
 
+const sensitiveKeyPattern = /(token|secret|password|authorization|api[_-]?key)/i;
+
+function knownSensitiveValues(): string[] {
+  return [
+    process.env.CASE_CALLBACK_TOKEN,
+    process.env.EXTRACTION_CALLBACK_TOKEN,
+    process.env.FILLER_API_TOKEN,
+    process.env.ROBOT_API_TOKEN,
+    process.env.OPENAI_API_KEY,
+    process.env.DEEPSEEK_API_KEY,
+    process.env.ERPNEXT_API_KEY,
+    process.env.ERPNEXT_API_SECRET
+  ].filter((value): value is string => Boolean(value && value.length >= 4));
+}
+
+function redactString(value: string): string {
+  return knownSensitiveValues().reduce(
+    (redacted, secret) => redacted.split(secret).join("<redacted>"),
+    value
+  );
+}
+
+function sanitizeForLog(value: unknown, key = ""): unknown {
+  if (sensitiveKeyPattern.test(key)) {
+    return value ? "<redacted>" : value;
+  }
+  if (typeof value === "string") {
+    return redactString(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLog(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      sanitizeForLog(entryValue, entryKey)
+    ]));
+  }
+  return value;
+}
+
 function commandDetails(result: UiPathCommandResult, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  return sanitizeForLog({
     ...extra,
     mode: result.mode,
     command: result.command,
     data: result.data,
     error: result.error,
     message: result.message
-  };
+  }) as Record<string, unknown>;
 }
 
 function caseEventDetails(request: Request, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -483,6 +524,10 @@ function batchCaseStartPatch(data: unknown, mode: "dry-run" | "uip"): Partial<Pi
   };
 }
 
+function batchExtractionIsCaseOwned(options: { batchId?: string }) {
+  return Boolean(options.batchId && process.env.UIPATH_START_CASE === "true");
+}
+
 async function dispatchToUiPath(
   job: IntakeJob,
   uploadedFile: Express.Multer.File,
@@ -647,6 +692,14 @@ async function createCapturedJob(
   const dispatched = await dispatchToUiPath(created, uploadedFile, {
     startInvoiceCase: !options.batchId
   });
+
+  if (batchExtractionIsCaseOwned(options)) {
+    return jobStore.appendEvent(dispatched.jobId, {
+      level: "info",
+      message: "Waiting for Maestro Case to start extraction."
+    });
+  }
+
   return startExtraction(dispatched, apiBaseUrl, "capture");
 }
 
