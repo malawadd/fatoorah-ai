@@ -1,0 +1,9 @@
+{
+  "ProjectType": "Api",
+  "name": "QoyodCaseRegisterCapturePayload",
+  "description": "API workflow used by QoyodInvoiceIntakeCase to register the capture stage with the invoice intake backend.",
+  "main": "RegisterCapturePayload.json",
+  "entryPoints": [
+    "RegisterCapturePayload.json"
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+  "$id": "entry-points.json",
+  "entryPoints": [
+    {
+      "filePath": "/content/WaitForQoyodExtensionDraft.json",
+      "uniqueId": "bb8709e9-673e-5cf3-9b13-57e7b42c2b61",
+      "type": "Api",
+      "input": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "caseCallbackToken": {
+            "type": "string"
+          },
+          "batchId": {
+            "type": "string"
+          },
+          "caseJobKey": {
+            "type": "string"
+          },
+          "caseInstanceId": {
+            "type": "string"
+          },
+          "maxAttempts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "apiBaseUrl",
+          "batchId"
+        ],
+        "title": "Inputs"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "caseStage": {
+            "type": "string"
+          },
+          "caseStatus": {
+            "type": "string"
+          },
+          "taskStatus": {
+            "type": "string"
+          },
+          "qoyodDraftStatus": {
+            "type": "string"
+          },
+          "qoyodDraftReference": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          }
+        },
+        "title": "Outputs"
+      },
+      "displayName": "Wait For Qoyod Extension Draft"
+    }
+  ]
+}

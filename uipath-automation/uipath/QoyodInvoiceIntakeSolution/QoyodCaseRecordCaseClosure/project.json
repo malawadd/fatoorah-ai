@@ -1,0 +1,9 @@
+{
+  "ProjectType": "Api",
+  "name": "QoyodCaseRecordCaseClosure",
+  "description": "Record Case Closure",
+  "main": "RecordCaseClosure.json",
+  "entryPoints": [
+    "RecordCaseClosure.json"
+  ]
+}

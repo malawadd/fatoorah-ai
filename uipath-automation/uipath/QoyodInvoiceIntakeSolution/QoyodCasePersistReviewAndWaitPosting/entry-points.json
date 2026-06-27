@@ -1,0 +1,64 @@
+{
+  "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+  "$id": "entry-points.json",
+  "entryPoints": [
+    {
+      "filePath": "/content/PersistReviewAndWaitPosting.json",
+      "uniqueId": "bb261013-b267-5378-b5ac-c5f2c2991c8d",
+      "type": "Api",
+      "input": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "caseCallbackToken": {
+            "type": "string"
+          },
+          "batchId": {
+            "type": "string"
+          },
+          "caseJobKey": {
+            "type": "string"
+          },
+          "caseInstanceId": {
+            "type": "string"
+          },
+          "maxAttempts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "apiBaseUrl",
+          "batchId"
+        ],
+        "title": "Inputs"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "caseStage": {
+            "type": "string"
+          },
+          "caseStatus": {
+            "type": "string"
+          },
+          "taskStatus": {
+            "type": "string"
+          },
+          "qoyodDraftStatus": {
+            "type": "string"
+          },
+          "qoyodDraftReference": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          }
+        },
+        "title": "Outputs"
+      },
+      "displayName": "Persist Review And Wait Posting"
+    }
+  ]
+}

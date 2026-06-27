@@ -1,0 +1,9 @@
+{
+  "ProjectType": "Api",
+  "name": "QoyodCasePersistReviewAndWaitPosting",
+  "description": "Persist Review And Wait Posting",
+  "main": "PersistReviewAndWaitPosting.json",
+  "entryPoints": [
+    "PersistReviewAndWaitPosting.json"
+  ]
+}

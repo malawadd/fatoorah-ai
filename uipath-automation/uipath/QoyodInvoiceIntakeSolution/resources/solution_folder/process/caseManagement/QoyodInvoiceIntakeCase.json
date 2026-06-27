@@ -13,23 +13,7 @@
         "name": "QoyodInvoiceIntakeCase"
       }
     ],
-    "runtimeDependencies": [
-      {
-        "bindingType": "app",
-        "bindingKey": "Finance/InvoiceIntake.qoyodinvoicereviewaction",
-        "bindingValues": {
-          "name": {
-            "defaultValue": "qoyodinvoicereviewaction",
-            "isExpression": false
-          },
-          "folderPath": {
-            "defaultValue": "Finance/InvoiceIntake",
-            "isExpression": false
-          }
-        },
-        "resourceKind": "App"
-      }
-    ],
+    "runtimeDependencies": [],
     "folders": [
       {
         "fullyQualifiedName": "solution_folder"
