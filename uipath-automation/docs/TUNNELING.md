@@ -54,9 +54,16 @@ Before declaring a tunnel ready, the script:
 
 If any step fails, the tunnel is killed and retried (up to 3 attempts).
 
-### 3. Auto-Update `.env`
+### 3. Auto-Update `.env` and Runtime Sync
 
-Once both tunnels are live, the script writes the API tunnel URL into `.env` as `PUBLIC_API_BASE_URL`. This is consumed by the Express server when constructing callback URLs for Maestro.
+Once both tunnels are live, the script writes:
+
+- `PUBLIC_API_BASE_URL` for Maestro callbacks.
+- `PUBLIC_WEB_APP_URL` for phone testing and Action Center review links.
+
+The Express server refreshes these tunnel keys at runtime before starting a new Maestro Case. That means a tunnel rotation does not require redeploying the UiPath package.
+
+Existing in-flight Case instances still keep the URL they were started with. If an old Case points to an expired `trycloudflare.com` URL, start a fresh batch after syncing the new tunnel.
 
 ---
 
@@ -102,6 +109,12 @@ The `session` action is also accessible via `scripts/phone-test-session.cmd` (do
 # Start both tunnels
 .\scripts\dev-tunnels.ps1 start
 
+# Start both tunnels and verify Maestro/backend config
+.\scripts\dev-tunnels.ps1 start -SyncMaestro
+
+# Start both tunnels, restart API, and verify Maestro/backend config
+.\scripts\dev-tunnels.ps1 start -SyncMaestro -RestartApi
+
 # Start with custom ports
 .\scripts\dev-tunnels.ps1 start -ApiPort 8787 -WebPort 5173
 
@@ -121,7 +134,8 @@ The `session` action is also accessible via `scripts/phone-test-session.cmd` (do
 2. Starts the **API** tunnel — waits for health check on `/api/health`.
 3. Starts the **Web** tunnel — waits for health check on `/`.
 4. Writes metadata to `.data/tunnels.json`.
-5. Updates `.env` with the new `PUBLIC_API_BASE_URL` (unless `-NoEnvUpdate`).
+5. Updates `.env` with the new `PUBLIC_API_BASE_URL` and `PUBLIC_WEB_APP_URL` (unless `-NoEnvUpdate`).
+6. Optionally runs `sync-maestro-tunnel.ps1` when `-SyncMaestro` is passed.
 
 ### What `stop` Does
 
@@ -142,7 +156,27 @@ The `session` action is also accessible via `scripts/phone-test-session.cmd` (do
 
 ## Maestro Preflight Validation
 
-After starting tunnels, run the preflight script to verify everything is wired correctly:
+After starting tunnels, run the sync script to verify the tunnel URLs are also visible to the running backend:
+
+```powershell
+.\scripts\sync-maestro-tunnel.ps1
+```
+
+If the API process was already running with an older code version or stale env values:
+
+```powershell
+.\scripts\sync-maestro-tunnel.ps1 -RestartApi
+```
+
+The sync script:
+
+- Reads `.data/tunnels.json` unless URLs are passed explicitly.
+- Updates `.env`.
+- Checks the API and web tunnel health.
+- Checks `GET /api/runtime/config` locally and through the public API tunnel.
+- Runs the Maestro preflight script unless `-SkipPreflight` is passed.
+
+The lower-level preflight script can also be run directly:
 
 ```powershell
 .\scripts\maestro-preflight.ps1
@@ -153,7 +187,14 @@ It checks:
 - The `PUBLIC_API_BASE_URL` is a reachable public HTTPS URL (not localhost).
 - UiPath CLI is installed and authenticated.
 - The Case plan file exists.
-- An Orchestrator asset can be updated to the current tunnel URL.
+
+For a live Case callback smoke test:
+
+```powershell
+.\scripts\maestro-tunnel-smoke.ps1 -BatchName "demo test"
+```
+
+This uploads a tiny PDF through the public API tunnel, starts a real Maestro Case, and verifies the fresh API tunnel URL appears in the Case start details and that a Maestro callback reaches the backend.
 
 ---
 
@@ -161,7 +202,7 @@ It checks:
 
 ```
 1. npm run dev                    → starts API (:8787) + Vite (:5173)
-2. .\scripts\dev-tunnels.ps1 start → creates two trycloudflare.com URLs
+2. .\scripts\dev-tunnels.ps1 start -SyncMaestro → creates two trycloudflare.com URLs and verifies backend config
 3. Open web tunnel URL on phone   → phone hits Vite, Vite proxies /api → Express
 4. Maestro calls API tunnel URL   → cloud callback reaches Express directly
 5. .\scripts\dev-tunnels.ps1 stop  → tears down both tunnels
@@ -174,6 +215,12 @@ It checks:
 | **Web tunnel** (`*.trycloudflare.com`) | Phone browser, desktop browser | PWA frontend; API calls go through Vite's proxy |
 | **API tunnel** (`*.trycloudflare.com`) | Maestro cloud callbacks, UiPath Orchestrator | Direct HTTPS access to Express endpoints |
 | **Firewall IP** (`http://192.168.x.x:5173`) | Phone on same Wi-Fi | Direct local-network testing without a tunnel |
+
+---
+
+## Tunnel Rotation Findings
+
+See [Maestro Tunnel Rotation Findings](./MAESTRO_TUNNEL_ROTATION_FINDINGS.md) for the root cause of stale Maestro callback URLs and the exact recovery workflow.
 
 ---
 

@@ -55,14 +55,25 @@ For local desktop-only testing, use `http://localhost:5173`.
 For phone testing or live Maestro callbacks, keep `npm run dev` running and start temporary Cloudflare tunnels:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 start
+powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 start -SyncMaestro
 ```
 
 The script prints two URLs:
 
-- Web tunnel: open this URL on the phone. It points to the PWA on local port `5173`.
 - API tunnel: use this URL for Maestro callbacks. The script writes it to ignored local `.env` as `PUBLIC_API_BASE_URL`.
 - Web tunnel: use this URL on the phone and for Action Center review links. The script writes it to ignored local `.env` as `PUBLIC_WEB_APP_URL`.
+
+If you already started tunnels without `-SyncMaestro`, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\sync-maestro-tunnel.ps1
+```
+
+If the API process was running before the tunnel changed and you want a clean restart:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\sync-maestro-tunnel.ps1 -RestartApi
+```
 
 Check tunnel status:
 
@@ -78,7 +89,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-tunnels.ps1 stop
 
 This closes public access. To stop the local web/API listeners too, stop `npm run dev` with `Ctrl+C` in its terminal.
 
-After starting tunnels, run:
+After starting tunnels, you can run the preflight directly if you want a lower-level check:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\maestro-preflight.ps1
@@ -89,11 +100,13 @@ Expected results:
 - `PUBLIC_API_BASE_URL reachability shape - public HTTPS URL available for Maestro callbacks`
 - `PUBLIC_WEB_APP_URL reachability shape - public HTTPS URL available for Action Center review links`
 
-If the Maestro case reads the backend URL from the Orchestrator asset `InvoiceIntakeApiBaseUrl`, update that asset whenever the API tunnel URL changes:
+For a live Case callback smoke test after a tunnel rotation:
 
 ```powershell
-uip or assets update <asset-id> "<api-tunnel-url>" --folder-path "Finance/InvoiceIntake" --output json
+powershell -ExecutionPolicy Bypass -File scripts\maestro-tunnel-smoke.ps1 -BatchName "demo test"
 ```
+
+Current builds pass the tunnel URL as a Case start input, so tunnel rotation does not require updating an Orchestrator asset or redeploying the UiPath package. See [Maestro Tunnel Rotation Findings](./MAESTRO_TUNNEL_ROTATION_FINDINGS.md) for details and old-case recovery notes.
 
 ## 2. Capture Invoices
 

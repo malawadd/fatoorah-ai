@@ -7,7 +7,11 @@ param(
 
   [int]$WebPort = 5173,
 
-  [switch]$NoEnvUpdate
+  [switch]$NoEnvUpdate,
+
+  [switch]$SyncMaestro,
+
+  [switch]$RestartApi
 )
 
 $ErrorActionPreference = "Stop"
@@ -235,6 +239,25 @@ switch ($Action) {
     Write-Host "Web tunnel: $($web.url)" -ForegroundColor Green
     Write-Host ""
     Write-Host "Open the Web tunnel on the phone. Use the API tunnel for Maestro callbacks."
+
+    if ($SyncMaestro) {
+      $syncArgs = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", (Join-Path $PSScriptRoot "sync-maestro-tunnel.ps1"),
+        "-ApiUrl", $api.url,
+        "-WebUrl", $web.url,
+        "-ApiPort", $ApiPort,
+        "-WebPort", $WebPort
+      )
+      if ($RestartApi) {
+        $syncArgs += "-RestartApi"
+      }
+
+      & powershell.exe @syncArgs
+      if ($LASTEXITCODE -ne 0) {
+        throw "Tunnel sync failed."
+      }
+    }
   }
 
   "stop" {

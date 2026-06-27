@@ -1,4 +1,4 @@
-import "./env";
+import { refreshRuntimeEnv } from "./env";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
 import multer from "multer";
@@ -191,7 +191,13 @@ function verifyExtractionToken(request: Request, response: Response): boolean {
 }
 
 function requestBaseUrl(request: Request): string {
+  refreshRuntimeEnv();
   return (process.env.PUBLIC_API_BASE_URL || process.env.INVOICE_INTAKE_API_BASE_URL || `${request.protocol}://${request.get("host")}`).replace(/\/$/, "");
+}
+
+function publicWebAppUrl(): string | undefined {
+  refreshRuntimeEnv();
+  return process.env.PUBLIC_WEB_APP_URL;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -806,6 +812,20 @@ app.get("/api/health", (_request, response) => {
   });
 });
 
+app.get("/api/runtime/config", (request, response) => {
+  response.json({
+    publicApiBaseUrl: requestBaseUrl(request),
+    publicWebAppUrl: publicWebAppUrl() ?? "",
+    uipathEnabled: process.env.UIPATH_ENABLED === "true",
+    uipathStartCase: process.env.UIPATH_START_CASE === "true",
+    uipathCaseProcessKeySet: Boolean(process.env.UIPATH_CASE_PROCESS_KEY),
+    uipathCaseFolderKeySet: Boolean(process.env.UIPATH_CASE_FOLDER_KEY),
+    uipathCaseReleaseKeySet: Boolean(process.env.UIPATH_CASE_RELEASE_KEY),
+    caseCallbackTokenSet: Boolean(process.env.CASE_CALLBACK_TOKEN),
+    time: new Date().toISOString()
+  });
+});
+
 app.get("/api/jobs", asyncHandler(async (_request, response) => {
   response.json({ jobs: await jobStore.list() });
 }));
@@ -913,7 +933,7 @@ app.post("/api/case/batches/:batchId/extraction/start", asyncHandler(async (requ
     batch: updated,
     startedCount,
     skippedCount,
-    progress: buildCaseBatchProgress(updated, process.env.PUBLIC_WEB_APP_URL)
+    progress: buildCaseBatchProgress(updated, publicWebAppUrl())
   });
 }));
 
@@ -926,7 +946,7 @@ app.get("/api/case/batches/:batchId/progress", asyncHandler(async (request, resp
     return;
   }
 
-  response.json({ progress: buildCaseBatchProgress(batch, process.env.PUBLIC_WEB_APP_URL) });
+  response.json({ progress: buildCaseBatchProgress(batch, publicWebAppUrl()) });
 }));
 
 app.post("/api/case/batches/:batchId/stage", asyncHandler(async (request, response) => {
